@@ -48,13 +48,6 @@ import type { MultiplexerBackend } from "./multiplexer/types.ts";
 import type { HarnessAdapter } from "./harness/types.ts";
 import { getAdapter } from "./harness/resolve.ts";
 import { hostSession } from "../core/session.ts";
-import {
-  registerPeer,
-  updatePeerMeta,
-  markPeerClosed,
-  markPeerReopened,
-  registerRun,
-} from "../registry/registry.ts";
 import { isSystemAgent } from "../core/system-agents.ts";
 
 // ─── peer.json 读写 ─────────────────────────────────────────────────────────
@@ -366,10 +359,6 @@ export async function openPeer(opts: OpenPeerOpts): Promise<PeerInfo> {
   };
   writePeerJson(peer);
   peers.set(peerId, peer);
-  registerPeer(peer, {
-    isSystemSpawned: opts.isSystemSpawned ?? isSystemAgent(agent.name),
-    parentRunId: opts.parentRunId,
-  });
 
   // pane 标题 = 角色@harness + peerId 尾段：人类可读（谁在干活），
   // 尾段又能与主会话拿到的 peerId 句柄对上（同名 peer 可区分）
@@ -461,7 +450,7 @@ function sleep(ms: number): Promise<void> {
 
 export interface SendResult {
   peerId: string;
-  /** 本次消息的 runId（registry 键）：<peerId>-m<seq>；steer 时为当前 seq */
+  /** 本次消息的 runId：<peerId>-m<seq>；steer 时为当前 seq */
   msgId: string;
   seq: number;
   /** true=新任务（seq 递增）；false=舵手消息（塞进 working peer） */
@@ -481,7 +470,7 @@ export function sendToPeer(
   opts: {
     images?: string[];
     parentRunId?: string;
-    /** registry mode 字段（chain/parallel 步骤归组）；默认 "single" */
+    /** 批次 mode（chain/parallel 步骤归组）；默认 "single" */
     mode?: "single" | "parallel" | "chain";
   } = {},
 ): SendResult {
@@ -495,7 +484,6 @@ export function sendToPeer(
     (backend.promptAgent ?? backend.sendText).call(backend, peer.paneId, task);
     peer.lastStatus = "working";
     writePeerJson(peer);
-    updatePeerMeta(peer.peerId, { lastStatus: "working" });
     return {
       peerId: peer.peerId,
       msgId: `${peer.peerId}-m${peer.msgSeq}`,
@@ -525,17 +513,6 @@ export function sendToPeer(
   fs.writeFileSync(path.join(peer.peerDir, "task.md"), task, "utf-8");
 
   const msgId = `${peer.peerId}-m${seq}`;
-  registerRun({
-    runId: msgId,
-    agent: peer.agent,
-    mode: opts.mode ?? "single",
-    runDir: peer.peerDir,
-    taskExcerpt: task.slice(0, 200),
-    parentRunId: opts.parentRunId,
-    peerId: peer.peerId,
-    msgSeq: seq,
-    harness: peer.harness,
-  });
 
   (backend.promptAgent ?? backend.sendText).call(
     backend,
@@ -546,12 +523,10 @@ export function sendToPeer(
   peer.msgSeq = seq;
   peer.lastStatus = "working";
   writePeerJson(peer);
-  updatePeerMeta(peer.peerId, { msgSeq: seq, lastStatus: "working" });
   const session = backend.agentSession?.(peer.paneId);
   if (session && session !== peer.nativeSessionId) {
     peer.nativeSessionId = session;
     writePeerJson(peer);
-    updatePeerMeta(peer.peerId, { nativeSessionId: session });
   }
 
   return { peerId: peer.peerId, msgId, seq, isNewTask: true };
@@ -675,7 +650,6 @@ export async function reopenPeer(
   peer.lastStatus = "resumed";
   peers.set(peer.peerId, peer);
   writePeerJson(peer);
-  markPeerReopened(peer.peerId, paneId);
 
   backend.setTitle(
     paneId,
@@ -737,7 +711,6 @@ export function closePeer(peer: PeerInfo): void {
   peer.lastStatus = "closed";
   writePeerJson(peer);
   peers.delete(peer.peerId);
-  markPeerClosed(peer.peerId);
   // 空页回收：同 tabId 下无其他存活 peer → 关页（tmux 末 pane 自闭页时 closeTab 静默无操作）
   if (peer.tabId) {
     const tabId = peer.tabId;

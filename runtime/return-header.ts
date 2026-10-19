@@ -177,7 +177,7 @@ export function formatReturnHeaderInstruction(): string {
 
 **注意**:
 - Return Header 必须在**最终 assistant 文本的顶部**(前 4 行内),parent agent 才能结构化解析
-- \`**Files touched\`\` 是相对路径(相对于 process.cwd()),父会话会写入 registry
+- \`**Files touched\`\` 是相对路径(相对于 process.cwd())，父会话据此核对改动面
 - \`**Findings worth promoting\`\` 应是经过验证的事实,不是泛泛想法
 - 字段名大小写不重要(Status/status/STATUS 都能解析),但冒号必须是英文半角 \`:\``;
 }

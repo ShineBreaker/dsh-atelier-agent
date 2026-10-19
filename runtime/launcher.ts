@@ -21,7 +21,7 @@ import {
   removeSubagentOnlyMarkers,
   resolveAgentFile,
 } from "../core/context.ts";
-import { formatReturnHeaderInstruction } from "../registry/return-header.ts";
+import { formatReturnHeaderInstruction } from "./return-header.ts";
 import { detectBackend } from "./multiplexer/detect.ts";
 
 // ─── XDG 路径 ────────────────────────────────────────────────────────────────

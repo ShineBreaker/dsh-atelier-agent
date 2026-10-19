@@ -21,7 +21,6 @@
     "tools/",
     "core/",
     "runtime/",
-    "registry/",
     "context/",
     "cordis.patch.yml",
     "test/",

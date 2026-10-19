@@ -27,13 +27,7 @@ import {
 } from "./launcher.ts";
 import { detectBackend } from "./multiplexer/detect.ts";
 import { scheduleIdleClose } from "./peer.ts";
-import {
-  updateRunStatus,
-  updateRunReturnStatus,
-  updatePeerMeta,
-  markPeerClosed,
-} from "../registry/registry.ts";
-import { parseReturnHeader } from "../registry/return-header.ts";
+import { parseReturnHeader } from "./return-header.ts";
 
 // ─── PR-12: peer 消息等待 ────────────────────────────────────────────────────
 //
@@ -110,7 +104,7 @@ const REMEDIATE_GRACE_MS = 90_000;
  *   - herdr blocked 状态走 blockedGraceMs 宽容期，超时返回带「用 send 解堵」
  *     提示的失败结果。
  *
- * registry：本条消息对应 runId = `<peerId>-m<seq>`。
+ * 本条消息的 runId = `<peerId>-m<seq>`（文件契约的 msgSeq 与之对齐）。
  */
 export async function waitForPeerMessage(
   peer: PeerInfo,
@@ -148,22 +142,15 @@ export async function waitForPeerMessage(
     error?: string,
   ): RunResult => {
     peer.lastStatus = status === "completed" ? "idle" : status;
-    updatePeerMeta(peer.peerId, { lastStatus: peer.lastStatus });
-    updateRunStatus({ runId: msgId, status, exitCode, error });
     // completed 且可 resume → 调度空闲自动回收（idleGraceMs 内无新 send 才关；
     // failed/blocked/timeout 永不自动关，保留 send 解堵语义）
     if (status === "completed") scheduleIdleClose(peer, config);
-    if (status === "completed" || status === "failed") {
-      try {
-        const parsed = parseReturnHeader(output);
-        updateRunReturnStatus({
-          runId: msgId,
-          returnStatus: parsed ? parsed.status : "unknown",
-          returnSummary: parsed ? parsed.summary : "(no return header)",
-        });
-      } catch {
-        /* header 解析失败不阻塞 */
-      }
+    let returnHeader;
+    try {
+      const parsed = parseReturnHeader(output);
+      if (parsed) returnHeader = { status: parsed.status, summary: parsed.summary };
+    } catch {
+      /* header 解析失败不阻塞 */
     }
     return {
       runId: msgId,
@@ -176,6 +163,7 @@ export async function waitForPeerMessage(
       durationMs: Date.now() - startedAt,
       tmuxPane: peer.paneId,
       error,
+      returnHeader,
     };
   };
 
@@ -235,7 +223,6 @@ export async function waitForPeerMessage(
         clearInterval(interval);
         killPane(peer.paneId);
         peer.alive = false;
-        markPeerClosed(peer.peerId);
         resolve(finish("failed", "Aborted", -1, "Aborted"));
         return;
       }
@@ -278,7 +265,6 @@ export async function waitForPeerMessage(
       if (!paneIsAlive(peer.paneId)) {
         clearInterval(interval);
         peer.alive = false;
-        markPeerClosed(peer.peerId);
         resolve(
           finish(
             "failed",
@@ -378,8 +364,7 @@ export function listRunning(
   const results: RunResult[] = [];
   for (const entry of fs.readdirSync(subagentsDir)) {
     const runDir = path.join(subagentsDir, entry);
-    // peer 目录不是独立 run——peer 消息在 registry 里有 <peerId>-m<seq> 行，
-    // 按目录扫会造出 runId=peerId 的幻影运行
+    // peer 目录不是独立 run——按目录扫会造出 runId=peerId 的幻影运行
     if (fs.existsSync(path.join(runDir, "peer.json"))) continue;
     const status = readStatus(runDir);
     if (!status || status.status !== "running") continue;

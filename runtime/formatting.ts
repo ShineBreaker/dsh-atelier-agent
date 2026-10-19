@@ -8,10 +8,13 @@
 
 import type { RunResult } from "../core/types.ts";
 
-/** 格式化单个 agent 的运行结果（含 workfile 路径提示） */
+/** 格式化单个 agent 的运行结果（Return Header 有则展示状态与摘要） */
 export function formatResult(r: RunResult): string {
   const icon = r.status === "completed" ? "✓" : "✗";
-  return `### [${r.agent}] ${icon} (${r.durationMs}ms)${workfile}\n\n${r.output}`;
+  const header = r.returnHeader
+    ? ` [${r.returnHeader.status}] ${r.returnHeader.summary}`
+    : "";
+  return `### [${r.agent}] ${icon} (${r.durationMs}ms)${header}\n\n${r.output}`;
 }
 
 /** 格式化多个 agent 运行结果的汇总 */

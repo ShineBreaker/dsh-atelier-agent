@@ -7,6 +7,7 @@ import * as path from "node:path";
 
 const PLUGIN = new URL("..", import.meta.url).pathname;
 const CWD = process.env.ATELIER_E2E_CWD || "/tmp/atelier-e2e";
+fs.mkdirSync(CWD, { recursive: true });
 process.chdir(CWD);
 
 // ── fake ctx ──────────────────────────────────────────────────────────
@@ -132,43 +133,40 @@ if (case_ === "mgmt" || case_ === "all") {
 
 if (case_ === "orphan" || case_ === "all") {
   console.log("── 孤儿认领 ──");
-  const { registerRun } = await import(`${PLUGIN}/registry/registry.ts`);
-  const { orphanRecovery } = await import(`${PLUGIN}/registry/orphan-recovery.ts`);
-  const { hostSession } = await import(`${PLUGIN}/core/session.ts`);
-  hostSession.id = session.header.id;
+  const { recoverOrphans } = await import(`${PLUGIN}/runtime/recovery.ts`);
+  const { getSubagentsDir } = await import(`${PLUGIN}/runtime/launcher.ts`);
 
-  // 伪造孤儿：peer.json 归本 session、pane 已死、status 卡 running
-  const orphanDir = path.join(CWD, "orphan-peer-sa-test000-dead01");
+  // 伪造孤儿：pane 已死、status 卡 running
+  const orphanDir = path.join(getSubagentsDir(), "sa-test000-dead01");
   fs.mkdirSync(orphanDir, { recursive: true });
-  const orphanPeer = {
-    peerId: "sa-test000-dead01",
-    peerDir: orphanDir,
-    paneId: "w0:p999",
-    agent: "scout",
-    harness: "pi",
-    alive: true,
-    msgSeq: 1,
-    sessionId: session.header.id,
-  };
-  fs.writeFileSync(path.join(orphanDir, "peer.json"), JSON.stringify(orphanPeer));
-  fs.writeFileSync(path.join(orphanDir, "status.json"), JSON.stringify({ status: "running", msgSeq: 1 }));
-  registerRun({
-    runId: "sa-test000-dead01-m1",
-    agent: "scout",
-    mode: "peer",
-    runDir: orphanDir,
-    taskExcerpt: "orphan test",
-    peerId: "sa-test000-dead01",
-    msgSeq: 1,
-    harness: "pi",
-  });
-  const report = orphanRecovery(Date.now(), {
+  fs.writeFileSync(
+    path.join(orphanDir, "peer.json"),
+    JSON.stringify({
+      peerId: "sa-test000-dead01",
+      peerDir: orphanDir,
+      paneId: "w0:p999",
+      agent: "scout",
+      harness: "pi",
+      alive: true,
+      msgSeq: 1,
+      sessionId: session.header.id,
+    }),
+  );
+  fs.writeFileSync(
+    path.join(orphanDir, "status.json"),
+    JSON.stringify({ status: "running", msgSeq: 1 }),
+  );
+  out.orphan = recoverOrphans(Date.now(), {
     paneAlive: () => false,
-    agentStatus: () => null,
     agentSession: () => null,
   });
-  out.orphan = report;
-  out.orphanStatus = JSON.parse(fs.readFileSync(path.join(orphanDir, "status.json"), "utf-8"));
+  out.orphanStatus = JSON.parse(
+    fs.readFileSync(path.join(orphanDir, "status.json"), "utf-8"),
+  );
+  out.orphanPeerAlive = JSON.parse(
+    fs.readFileSync(path.join(orphanDir, "peer.json"), "utf-8"),
+  ).alive;
+  fs.rmSync(orphanDir, { recursive: true, force: true });
 }
 
 console.log("\n═══════ RESULT ═══════");
