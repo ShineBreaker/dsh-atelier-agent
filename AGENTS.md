@@ -44,6 +44,6 @@ npm + GitHub Release 双渠道，均由 tag 推送经 `.github/workflows/release
 1. semver 定性：patch = 不改行为（可攒批），minor = 新能力或行为变化（单独发）。
 2. `chore(release): 发布 vX.Y.Z`：版本号 + CHANGELOG 同 commit；manifest 类变更走独立 commit。
 3. tag 推送前核对：`git log --oneline -1 <tag>` 是 release commit，且 `git branch -a --contains <tag>` 有输出。
-4. **首发 bootstrap**（每个新包一次）：包须先在 npm 存在才能配 Trusted Publisher，故首发只能手工 `npm publish --access public`（本地发布无 provenance，TP 后的 CI 发布自动带）。首发成功后到包页 Settings → Trusted Publisher 配 GitHub Actions（Repository=ShineBreaker/dsh-atelier，Workflow filename=release.yml）；**新配置 2 天内须有一次成功 OIDC 发布**，否则过期——配完尽快发一版激活。
+4. **首发 bootstrap**（每个新包一次）：包须先在 npm 存在才能配 Trusted Publisher，故首发只能手工 `npm publish --access public`（本地发布无 provenance，TP 后的 CI 发布自动带）。首发成功后到包页 Settings → Trusted Publisher 配 GitHub Actions（Repository=ShineBreaker/dsh-atelier-agent，Workflow filename=release.yml）；**新配置 2 天内须有一次成功 OIDC 发布**，否则过期——配完尽快发一版激活。
 5. CI 幂等：registry 已存在该版本即跳过 npm 发布（name@version 永久不可复用，unpublish 也救不回），只建 GitHub Release。
 6. cohort 同步抬：DSH 出新 cohort 时抬 `peerDependencies["@deepseek-ai/dsh"]` 下限，**必须保留 `-rc.x` 后缀**（无后缀对预发布版 dsh 判不兼容）；`dsh.engines` 是死字段（无代码读取），已删，勿再写。

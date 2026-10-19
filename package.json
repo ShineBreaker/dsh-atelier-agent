@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ShineBreaker/dsh-atelier.git"
+    "url": "git+https://github.com/ShineBreaker/dsh-atelier-agent.git"
   },
   "type": "module",
   "main": "./index.js",

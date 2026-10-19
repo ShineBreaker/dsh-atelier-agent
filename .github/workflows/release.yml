@@ -2,7 +2,7 @@
 # 发版流程见 AGENTS.md「发布」：本地验证通过后再推 tag。
 #
 # npm 侧一次性配置（包页 → Settings → Trusted Publisher → GitHub Actions）：
-#   Repository = ShineBreaker/dsh-atelier，Workflow filename = release.yml。
+#   Repository = ShineBreaker/dsh-atelier-agent，Workflow filename = release.yml。
 # 新配置 2 天内须有一次成功 OIDC 发布否则过期——配完 TP 后尽快发一版激活。
 name: release
 
