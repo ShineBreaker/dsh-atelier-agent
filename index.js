@@ -17,13 +17,14 @@
  */
 
 import * as peerTool from "./tools/peer.js";
+import * as commands from "./commands.js";
 import * as hooks from "./hooks.js";
 import { loadConfig } from "./core/config.ts";
 
 export const name = "dsh-atelier-agent";
 
 /** 聚合各半边需要的服务（hooks 只用事件，不需要额外服务）。 */
-export const inject = ["tools"];
+export const inject = ["tools", "commands"];
 
 export function apply(ctx, config = {}) {
   if (config.enabled === false) return;
@@ -37,6 +38,7 @@ export function apply(ctx, config = {}) {
   // 工具半边内部各取所需：apply 返回的都是 disposer。
   const disposers = [
     peerTool.apply(ctx, cfg),
+    commands.apply(ctx, cfg),
     hooks.apply(ctx, cfg),
   ];
   return () => {

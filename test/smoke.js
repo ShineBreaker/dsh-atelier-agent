@@ -30,11 +30,18 @@ async function check(label, fn) {
 // ── 契约：apply 经假 ctx 注册，definition 符合 ToolDefinition 形状 ──
 
 const registeredNames = [];
+const registeredCommands = [];
 const listeners = new Map();
 const fakeCtx = {
   tools: {
     register(def) {
       registeredNames.push(def.name);
+      return () => {};
+    },
+  },
+  commands: {
+    register(def) {
+      registeredCommands.push(def.name);
       return () => {};
     },
   },
@@ -46,9 +53,10 @@ const fakeCtx = {
   logger: { info: () => {}, warn: () => {}, error: () => {} },
 };
 
-await check("apply 只注册 peer 工具并交还反注册函数", () => {
+await check("apply 注册 peer 工具与 /atelier 命令", () => {
   const dispose = plugin.apply(fakeCtx, {});
   assert.deepEqual(registeredNames, ["peer"]);
+  assert.deepEqual(registeredCommands, ["atelier"]);
   assert.equal(typeof dispose, "function");
   dispose();
 });
