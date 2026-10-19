@@ -23,22 +23,7 @@ const ctx = {
     events.get(ev).push(fn);
     return () => {};
   },
-  systemPrompt: {
-    section: (s) => {
-      sections.push(s);
-      return () => {};
-    },
-  },
-  commands: { register: (d) => (commands.set(d.name, d), () => {}) },
   tools: { register: (d) => (tools.set(d.name, d), () => {}) },
-  llm: {
-    listModels: async () => [
-      {
-        id: "step-5-preview",
-        inputModalities: imageOk ? ["text", "image"] : ["text"],
-      },
-    ],
-  },
   logger: {
     info: (...a) => console.log("[log]", ...a),
     warn: (...a) => console.warn("[warn]", ...a),
@@ -72,9 +57,7 @@ const fire = async (ev, payload, next) => {
 
 const plugin = await import(`${PLUGIN}/index.js`);
 plugin.apply(ctx, {});
-console.log(
-  `registered: tools=[${[...tools.keys()]}] commands=${commands.size} sections=${sections.length}`,
-);
+console.log(`registered: tools=[${[...tools.keys()]}]`);
 
 // 锚定 hostSession（agent/created）
 await fire("agent/created", { agent });
@@ -147,38 +130,6 @@ if (case_ === "mgmt" || case_ === "all") {
   }
 }
 
-if (case_ === "plangate" || case_ === "all") {
-  console.log("── plan gate ──");
-  const execPayload = {
-    name: "exit_plan_mode",
-    arguments: { plan: "1. 做A\n2. 做B\n3. 验证" },
-    agent,
-  };
-  const next = async () => ({ kind: "allow" });
-  const [first] = await fire("tools/pre-execute", execPayload, next);
-  out.gateFirst = first?.kind;
-  const [second] = await fire("tools/pre-execute", execPayload, next);
-  out.gateSecond = second?.kind;
-  out.planWritten = fs.existsSync(path.join(CWD, ".agents", "current-plan.md"));
-}
-
-if (case_ === "visual" || case_ === "all") {
-  console.log("── 视觉移交 ──");
-  imageOk = false;
-  const imgMsg = {
-    role: "user",
-    content: [
-      { type: "text", text: "看下这张图" },
-      { type: "image", mimeType: "image/png", data: Buffer.from("PNGDATA").toString("base64") },
-    ],
-  };
-  const next = async () => ({ kind: "enter", messages: [imgMsg] });
-  const [decision] = await fire("agent/pre-step", { agent, messages: [imgMsg], signal: null }, next);
-  const last = decision?.messages?.at(-1);
-  out.visualHint = last?.content?.[0]?.text?.slice(0, 200);
-  imageOk = true;
-}
-
 if (case_ === "orphan" || case_ === "all") {
   console.log("── 孤儿认领 ──");
   const { registerRun } = await import(`${PLUGIN}/registry/registry.ts`);
@@ -218,21 +169,6 @@ if (case_ === "orphan" || case_ === "all") {
   });
   out.orphan = report;
   out.orphanStatus = JSON.parse(fs.readFileSync(path.join(orphanDir, "status.json"), "utf-8"));
-}
-
-if (case_ === "inject" || case_ === "all") {
-  console.log("── systemPrompt 注入（默认 worker + 命令标记 + plan mode）──");
-  const sec = sections.find((s) => s.name === "atelier-main-context");
-  out.injectDefault = sec.text({ agent }).slice(0, 120);
-  // 命令标记路径
-  const { pendingContextInject } = await import(`${PLUGIN}/lib/state.js`);
-  pendingContextInject.set(String(agent.id), "reviewer");
-  out.injectCmd = sec.text({ agent }).slice(0, 120);
-  // plan mode
-  session.surface.nodes = [1];
-  session.eventAt = (s) => (s === 1 ? { type: "plan/mode", data: { active: true } } : null);
-  out.injectPlan = sec.text({ agent }).slice(0, 120);
-  session.surface.nodes = [];
 }
 
 console.log("\n═══════ RESULT ═══════");

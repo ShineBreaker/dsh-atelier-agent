@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * dsh-atelier-agent 入口 — peer 编排 bundle。
+ * dsh-atelier-agent 入口 — DSH 与外部 Agent CLI 的协调器 bundle。
  *
- * pi atelier 的 dsh 移植：peer 工具派发到 herdr/tmux 分屏 pane 里的
- * 持久 harness 会话（claude/codex/hermes/pi/…），文件契约
- * （brief-N/result-N/status.json）回收结果，harness 原生 resume 重开。
+ * peer 工具派发到 herdr/tmux 分屏 pane 里的持久 harness 会话
+ * （claude/codex/hermes/pi/…），文件契约（brief-N/result-N/status.json）
+ * 回收结果，harness 原生 resume 或上下文重放恢复。
  *
  * 挂载：cordis.patch.yml 裸包名行（子路径行会静默跳过 dsh.client 声明）。
  *
@@ -18,14 +18,13 @@
 
 import * as herdrTool from "./tools/herdr.js";
 import * as peerTool from "./tools/peer.js";
-import * as commands from "./commands.js";
 import * as hooks from "./hooks.js";
 import { loadConfig } from "./core/config.ts";
 
 export const name = "dsh-atelier-agent";
 
-/** 聚合各半边需要的服务。 */
-export const inject = ["tools", "commands", "systemPrompt", "llm"];
+/** 聚合各半边需要的服务（hooks 只用事件，不需要额外服务）。 */
+export const inject = ["tools"];
 
 export function apply(ctx, config = {}) {
   if (config.enabled === false) return;
@@ -40,7 +39,6 @@ export function apply(ctx, config = {}) {
   const disposers = [
     ctx.tools.register(herdrTool.definition),
     peerTool.apply(ctx, cfg),
-    commands.apply(ctx, cfg),
     hooks.apply(ctx, cfg),
   ];
   return () => {
