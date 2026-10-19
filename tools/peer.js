@@ -19,7 +19,7 @@ import { defineTool } from "../lib/define-tool.js";
 import { PeerParams } from "../core/schemas.js";
 import { deliver, sessionCwd } from "../lib/message.js";
 import { discoverAgents } from "../core/discovery.ts";
-import { generateRunId, getRunDir } from "../runtime/launcher.ts";
+import { generateRunId, getSubagentsDir } from "../runtime/launcher.ts";
 import { waitForPeerMessage, listRunning } from "../runtime/monitor.ts";
 import {
   closePeer,
@@ -29,6 +29,7 @@ import {
   listPeers,
   openPeer,
   readPeer,
+  readPeerJson,
   sendToPeer,
   peerBusy,
   focusPeer,
@@ -354,15 +355,19 @@ export const definition = defineTool({
     // ── action: status ────────────────────────────────────────────────
     if (params.action === "status") {
       if (params.id) {
-        const runDir = getRunDir(params.id);
+        // id 是 peerId：返回 peer.json + 当前 status.json（消息 runId 不再是目录）
+        const peerDir = path.join(getSubagentsDir(), params.id);
+        const peer = readPeerJson(peerDir);
+        if (!peer) return `未找到 peer: ${params.id}`;
+        let status = null;
         try {
-          const statusJson = JSON.parse(
-            fs.readFileSync(path.join(runDir, "status.json"), "utf-8"),
+          status = JSON.parse(
+            fs.readFileSync(path.join(peerDir, "status.json"), "utf-8"),
           );
-          return JSON.stringify(statusJson, null, 2);
         } catch {
-          return `未找到 run: ${params.id}`;
+          /* 尚未派发过消息 */
         }
+        return JSON.stringify({ ...peer, status }, null, 2);
       }
       const running = listRunning();
       if (running.length === 0) return "无运行中的 peer";
