@@ -115,9 +115,22 @@ node --input-type=module -e "await import('./index.js')"        # 模块图
 
 ## 桌面端
 
-Web / Electron 桌面共用同一套客户端插件机制（`dsh.client` + 客户端
-slot）。宿主侧通过 `ctx.connection.rpc` 暴露 peer 状态；客户端面板
-见 `client.js`（若存在）。TUI 与桌面共用同一份宿主状态与文件契约。
+Web / Electron 桌面共用同一套客户端插件机制。装进 Web profile 后，
+会话视图会多一个 **Peers** 页：存活 peer 列表、实时输出、舵手发送、
+聚焦 pane、退役与孤儿回收。宿主侧 RPC 走 `ctx.inject(["connection"])`
+动态注册，TUI/headless 没有该服务时自动跳过。
+
+Web/Desktop profile 还需要给 `connection` 行补 `webServer` 注入
+（`rpc.handle` 内部访问 `owner.webServer`；`inject` 是整表替换，
+`webStartup` 必须复述）：
+
+```yaml
+- id: connection
+  inject: [ webStartup, webServer ]
+```
+
+没有这一行时 `/atelier` 与 peer 派发仍正常，只是面板报
+“cannot get property webServer without inject”。
 
 ## License
 

@@ -3,6 +3,44 @@
 本文件采用 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式。
 版本号语义：patch=不改行为（可攒批）、minor=新能力/行为变化、高危走 -rc.n。
 
+## [0.4.0] - 2026-10-20
+
+定位收敛为 **DSH ↔ 外部 Agent CLI 协调器**（见 `docs/POSITIONING.md`）：
+只保留发现、派发、对话、回收、恢复、可见六件事。
+
+### Changed
+
+- 删除不属于协调器边界的模块（约 -3900 行）：主会话角色注入 / plan
+  gate / 视觉移交 hooks、17 个 `/<agent>` `/<prompt>` 命令、
+  checkpoint/workflow/resume 持久化、SQLite registry 与 completion
+  gate、模型时段调度、workfile/session-log 重复落盘、herdr 通用工具。
+- 崩溃恢复改为扫描 peer 目录（`runtime/recovery.ts`）：pane 死亡或
+  session 不匹配就标死并代写终态，不再维护第二套索引。
+- 命令面收敛为单一 `/atelier`（peers/list/read/focus/send/close/recover）。
+- `peer` 工具的 `status` 动作统一按 peerId 读 peer 元数据与 status.json。
+
+### Added
+
+- 无原生 session 的 harness（hermes/mcode 等）也能空闲回收：`send` 时
+  用上下文重放恢复（新 peer 读取旧 brief/result 文件），旧 peer.json
+  记录 `replayedAs`。
+- 桌面端（Web / Electron）Peers 面板：`/dsh-atelier` 宿主 RPC +
+  `client.js` 的 conversation.view 页（列表、实时输出、舵手发送、
+  聚焦、退役、孤儿回收）。
+- 真实 `test/e2e-drive.mjs`（`dsh --profile` 真派发 + 文件契约断言）、
+  `test/tui-smoke.sh`（TUI 冷启动 + `/atelier list`）；CI 增加 test job。
+
+### Fixed
+
+- `closePeer` 用磁盘 peer 列表判断同页兄弟，不再误杀；关闭时把卡在
+  running 的 status.json 收尾为 failed，避免 reopen 后忙碌误判。
+- `openPeer` / `reopenPeer` 启动失败时回收 pane 与 peer.json，不再泄漏；
+  `ensurePeer` 并发 reopen 去重。
+- 后台 watcher 随会话销毁退出，不再向死会话推送；批次推送同样检查。
+- herdr `promptAgent` 的 `Atomics.wait` 改为异步等待，外部命令加 10s
+  超时，不再冻结宿主事件循环。
+- `cleanupOldRuns` 保留所有带 peer.json 的目录，已关闭 peer 仍可恢复。
+
 ## [0.3.0] - 2026-10-19
 
 ### Changed
