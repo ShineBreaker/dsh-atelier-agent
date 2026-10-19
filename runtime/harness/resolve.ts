@@ -22,7 +22,6 @@ import type {
   RouteCandidate,
   SubagentConfig,
 } from "../../core/types.ts";
-import { isModelAllowedNow, parseSchedule } from "../../core/schedule.ts";
 import { genericAdapter, knownAdapters } from "./adapters.ts";
 import type { HarnessAdapter } from "./types.ts";
 
@@ -118,52 +117,16 @@ export function parseRouteEntry(entry: string): RouteCandidate {
 // ─── 路由链解析（tier / frontmatter / 显式参数 → RouteCandidate[]）─────────────
 
 /**
- * 按 modelSchedules 过滤候选。键依次试 "harness/model"、"model"、"harness"。
- * 命中的候选若当前时段禁用则剔除（warn 一次）。
- */
-function filterBySchedule(
-  candidates: RouteCandidate[],
-  config: SubagentConfig,
-): RouteCandidate[] {
-  const schedules = config.modelSchedules;
-  if (!schedules || Object.keys(schedules).length === 0) return candidates;
-  const usable: RouteCandidate[] = [];
-  for (const c of candidates) {
-    const keys = [
-      c.model ? `${c.harness}/${c.model}` : null,
-      c.model ?? null,
-      c.harness,
-    ].filter((k): k is string => k !== null);
-    let denied = false;
-    for (const key of keys) {
-      const cfg = schedules[key];
-      if (!cfg) continue;
-      const parsed = parseSchedule(cfg, key);
-      if (parsed.mode !== "unrestricted" && !isModelAllowedNow(parsed)) {
-        console.warn(
-          `[atelier:schedule] ${key} 当前时段被禁用（mode=${parsed.mode}），跳过`,
-        );
-        denied = true;
-        break;
-      }
-    }
-    if (!denied) usable.push(c);
-  }
-  return usable;
-}
-
-/**
  * 解析 agent 的完整路由尝试链：[首选 harness/model, ...fallback]。
  *
  * 优先级（自上而下短路）：
- *   1. params.harness / params.model 显式覆盖（不过滤 schedule）
+ *   1. params.harness / params.model 显式覆盖
  *   2. agent frontmatter `harness:` pin → tier routes 中同 harness 的项；
  *      没有同 harness 项时 → {harness: pin, model: undefined}
  *   3. agent tier → config.tiers[tier].routes（或旧式 [model,...fallback]）
  *   4. 全部落空 → [{harness:"pi"}]（继承默认）
  *
  * 然后按可用性过滤：adapter binary 不在 PATH 的候选剔除（warn）。
- * schedule 过滤对 2/3 路径生效；显式覆盖不过滤。
  *
  * @returns RouteCandidate[]（非空；空表示连 pi 都不可用——极端情况）
  */
@@ -194,10 +157,10 @@ export function resolveRouteChain(
       .filter((c) => c.harness === agent.harness);
     const pinned: RouteCandidate[] =
       sameHarness.length > 0 ? sameHarness : [{ harness: agent.harness }];
-    return filterBySchedule(pinned, config);
+    return pinned;
   }
 
-  // 3. tier routes → 解析 + 可用性/schedule 过滤
+  // 3. tier routes → 解析 + 可用性过滤
   if (tier === "inherit") {
     // inherit = pi + 前台默认模型（与 readDefaultModelFromSettings 语义一致，
     // 但 peer 模式不传 model，让 pi TUI 自己用 defaultModel）
@@ -213,8 +176,7 @@ export function resolveRouteChain(
     }
     return ok;
   });
-  const usable = filterBySchedule(available, config);
-  if (usable.length > 0) return usable;
+  if (available.length > 0) return available;
 
   if (parsed.length > 0) {
     console.warn(

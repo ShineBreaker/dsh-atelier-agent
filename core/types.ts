@@ -84,17 +84,6 @@ export interface SubagentConfig {
   /** tier 名 → model + fallback 链的映射 */
   tiers: Record<string, AgentModelConfig>;
   /**
-   * 模型/harness 使用时段限制（按名索引，跨 tier 生效）。
-   *
-   * 形状：`{ "zai/GLM-5.2": {...}, "claude/sonnet": {...}, "codex": {...} }`。
-   * 键可以是裸模型名、harness 名或 "harness/model" 复合键——
-   * resolveRouteChain 对每个 RouteCandidate 依次查
-   * `harness/model` → `model` → `harness` 三种键。
-   * 命中禁用窗口的候选被跳过（每个 warn 一次）；未列出项不受限。
-   */
-  modelSchedules: Record<string, { allow?: string[]; deny?: string[] }>;
-
-  /**
    * PR-12: peer 模式下 harness 的自治级别。
    *   - "full":   各 harness 的最大自治 flag（claude --dangerously-skip-permissions、
    *               codex --full-auto 等）。peer 无人值守运行的前提。
@@ -206,7 +195,6 @@ export const DEFAULT_CONFIG: SubagentConfig = {
   maxConcurrency: 4,
   defaultTier: "pro",
   tiers: {},
-  modelSchedules: {},
   peerApproval: "full",
   blockedGraceMs: 120 * 1000,
   peerReadyTimeoutMs: 30 * 1000,
