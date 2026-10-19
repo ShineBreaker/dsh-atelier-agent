@@ -48,7 +48,6 @@ import type { MultiplexerBackend } from "./multiplexer/types.ts";
 import type { HarnessAdapter } from "./harness/types.ts";
 import { getAdapter } from "./harness/resolve.ts";
 import { hostSession } from "../core/session.ts";
-import { isSystemAgent } from "../core/system-agents.ts";
 
 // ─── peer.json 读写 ─────────────────────────────────────────────────────────
 
@@ -280,7 +279,6 @@ export interface OpenPeerOpts {
   splitRatio?: number;
   /** 新开标签页派发：值为页标题；仅无 anchor 时生效，失败回退同页分割 */
   newTab?: string;
-  isSystemSpawned?: boolean;
   parentRunId?: string;
 }
 

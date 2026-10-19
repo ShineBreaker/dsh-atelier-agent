@@ -14,8 +14,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AgentConfig, PromptConfig } from "./types.ts";
-import { getAgentDirs, getPromptDirs } from "./context.ts";
+import type { AgentConfig } from "./types.ts";
+import { getAgentDirs } from "./context.ts";
 
 // ─── Agent 发现 ──────────────────────────────────────────────────────────────
 
@@ -97,8 +97,6 @@ export function discoverAgents(): AgentConfig[] {
   return agents;
 }
 
-// ─── Prompt 发现 ─────────────────────────────────────────────────────────────
-
 /**
  * 自定义 frontmatter 解析器 — 跳过 SPDX 注释块（agent 与 prompt 共用；
  * 替代 pi 侧 @earendil-works 的 parseFrontmatter，dsh 侧不能 import 宿主包）
@@ -132,89 +130,3 @@ function parseFrontmatter(
   return { frontmatter, body };
 }
 
-/**
- * 扫描 prompts/ 目录下的 .md 文件，解析 frontmatter + JSON 模板。
- *
- * 每个 prompt .md 文件格式：
- * ---
- * name: prompt-name
- * mode: single | parallel | chain
- * param: task        (模板占位符名)
- * description: ...
- * ---
- * ```json
- * { "chain": [{ "agent": "...", "task": "..." }, ...] }
- * ```
- */
-export function discoverPrompts(): PromptConfig[] {
-  const prompts: PromptConfig[] = [];
-  const seen = new Set<string>(); // 按 name 去重（插件内置优先）
-
-  for (const promptsDir of getPromptDirs()) {
-    if (!fs.existsSync(promptsDir)) continue;
-
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(promptsDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const entry of entries) {
-      if (!entry.name.endsWith(".md")) continue;
-      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-
-      const filePath = path.join(promptsDir, entry.name);
-      let content: string;
-      try {
-        content = fs.readFileSync(filePath, "utf-8");
-      } catch {
-        continue;
-      }
-
-      const parsed = parseFrontmatter(content);
-      if (!parsed || !parsed.frontmatter.name || !parsed.frontmatter.mode)
-        continue;
-
-      if (seen.has(parsed.frontmatter.name)) continue; // 插件内置优先，跳过重复
-      seen.add(parsed.frontmatter.name);
-
-      const mode = parsed.frontmatter.mode as "single" | "parallel" | "chain";
-      if (!["single", "parallel", "chain"].includes(mode)) continue;
-
-      // 从 body 中提取第一个 JSON 代码块作为模板
-      const jsonMatch = parsed.body.match(/```json\s*\n([\s\S]*?)\n```/);
-      if (!jsonMatch) continue;
-
-      let template: Record<string, unknown>;
-      try {
-        template = JSON.parse(jsonMatch[1]);
-      } catch {
-        continue;
-      }
-
-      // 从 JSON 模板中提取 entries（支持 chain/tasks/单对象三种格式）
-      const promptEntries: Array<{ agent: string; task: string }> = [];
-      const items = (template.chain ?? template.tasks ?? [template]) as Array<
-        Record<string, string>
-      >;
-      for (const item of items) {
-        if (item.agent && item.task) {
-          promptEntries.push({ agent: item.agent, task: item.task });
-        }
-      }
-
-      if (promptEntries.length === 0) continue;
-
-      prompts.push({
-        name: parsed.frontmatter.name,
-        mode,
-        param: parsed.frontmatter.param ?? "task",
-        description: parsed.frontmatter.description ?? "",
-        entries: promptEntries,
-      });
-    }
-  }
-
-  return prompts;
-}

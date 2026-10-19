@@ -87,9 +87,5 @@ export const PeerParams = {
       items: { type: "string" },
       description: "图片文件路径数组，传递给 visual agent 分析",
     },
-    isSystemSpawned: {
-      type: "boolean",
-      description: "系统子 agent 标记（默认 false）",
-    },
   },
 };

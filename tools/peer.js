@@ -18,7 +18,7 @@
 import { defineTool } from "../lib/define-tool.js";
 import { PeerParams } from "../core/schemas.js";
 import { deliver, sessionCwd } from "../lib/message.js";
-import { discoverAgents, discoverPrompts } from "../core/discovery.ts";
+import { discoverAgents } from "../core/discovery.ts";
 import { generateRunId, getRunDir } from "../runtime/launcher.ts";
 import { waitForPeerMessage, listRunning } from "../runtime/monitor.ts";
 import {
@@ -188,7 +188,6 @@ export const definition = defineTool({
     const hostAgent = exec.agent;
     const config = exec.atelierConfig;
     const agents = discoverAgents();
-    const prompts = discoverPrompts();
     const effectiveCwd = params.cwd ?? sessionCwd(hostAgent);
 
     // ── action: list ──────────────────────────────────────────────────
@@ -206,12 +205,6 @@ export const definition = defineTool({
           return `| ${a.name} | ${tier} | ${routes.join(" → ") || "(no route)"} | ${a.description.slice(0, 36)}… | ${tools} |`;
         })
         .join("\n");
-      const promptLines = prompts
-        .map(
-          (p) =>
-            `| ${p.name} | ${p.mode} | ${p.description.slice(0, 40)}… | /${p.name} <${p.param}> |`,
-        )
-        .join("\n");
       const harnessLines = listAvailableHarnesses()
         .map(
           (h) =>
@@ -226,11 +219,6 @@ export const definition = defineTool({
         "",
         "## Harnesses",
         harnessLines || "(none detected)",
-        "",
-        "## Prompt Templates",
-        "| Name | Mode | Description | Usage |",
-        "|------|------|-------------|-------|",
-        promptLines || "| (none) | | | |",
       ].join("\n");
     }
 
@@ -510,7 +498,6 @@ export const definition = defineTool({
             undefined,
             50,
             params.images,
-            params.isSystemSpawned,
             undefined,
             params.harness,
           );
@@ -544,7 +531,6 @@ export const definition = defineTool({
             config,
             cwd: effectiveCwd,
             newTab: `sub:${agent.name}`,
-            isSystemSpawned: params.isSystemSpawned,
           });
         }
         const sent = sendToPeer(peer, params.task, { images: params.images });

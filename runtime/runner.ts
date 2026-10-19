@@ -32,7 +32,6 @@ import {
   getAdapter,
   resolveRouteChain,
 } from "./harness/resolve.ts";
-import { isSystemAgent } from "../core/system-agents.ts";
 
 /**
  * 从 settings.json 读 defaultProvider + defaultModel，组合成完整 model ID。
@@ -96,14 +95,11 @@ export async function executeWithFallback(
   topRowTargetPaneId?: string,
   splitPercent?: number,
   images?: string[],
-  // PR-9: 系统子 agent 透传。默认由 isSystemAgent(agent.name) 推断。
-  isSystemSpawned?: boolean,
-  // PR-10: chain/parallel 内的 parent run id(由 runChain/runParallelBatches 生成)
+  // chain/parallel 内的 parent run id(由 runChain/runParallelBatches 生成)
   parentRunId?: string,
   // PR-12: 显式 harness 覆盖（params.harness）
   explicitHarness?: string,
 ): Promise<RunResult> {
-  const resolvedSystem = isSystemSpawned ?? isSystemAgent(agent.name);
   const routes = resolveRouteChain(
     agent,
     config,
@@ -137,7 +133,6 @@ export async function executeWithFallback(
         splitRatio: (splitPercent ?? 50) / 100,
         // 无 anchor（独立派发）→ 新标签页，不挤占主会话页
         ...(!topRowTargetPaneId ? { newTab: `sub:${agent.name}` } : {}),
-        isSystemSpawned: resolvedSystem,
         parentRunId,
       });
     } catch (err) {

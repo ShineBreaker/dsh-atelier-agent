@@ -59,16 +59,6 @@ export interface RouteCandidate {
   model?: string;
 }
 
-/** 从 .md 文件发现的 prompt 模板配置 */
-export interface PromptConfig {
-  name: string;
-  mode: "single" | "parallel" | "chain";
-  param: string;
-  description: string;
-  /** 解析后的 {agent, task} 列表 */
-  entries: Array<{ agent: string; task: string }>;
-}
-
 // ─── 运行时数据 ─────────────────────────────────────────────────────────────
 
 /** atelier 运行时配置（从 settings.json 的 atelier 字段加载） */
