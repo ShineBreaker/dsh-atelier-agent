@@ -161,6 +161,8 @@ export interface PeerInfo {
   nativeSessionId?: string;
   /** 最后一次观测到的 agent_status（herdr）或推断状态 */
   lastStatus?: string;
+  /** 上下文重放恢复后指向的新 peerId */
+  replayedAs?: string;
 }
 
 /** run 目录下的 status.json 文件结构 */

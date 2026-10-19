@@ -47,6 +47,7 @@ import { detectBackend } from "./multiplexer/detect.ts";
 import type { MultiplexerBackend } from "./multiplexer/types.ts";
 import type { HarnessAdapter } from "./harness/types.ts";
 import { getAdapter } from "./harness/resolve.ts";
+import { discoverAgents } from "../core/discovery.ts";
 import { hostSession } from "../core/session.ts";
 
 // ─── peer.json 读写 ─────────────────────────────────────────────────────────
@@ -590,6 +591,12 @@ export function peerResumable(peer: PeerInfo): boolean {
   return adapter !== null && typeof adapter.resumeCommand === "function";
 }
 
+/** 无原生 session 时能否用上下文重放恢复（需要 agent 定义与可用 adapter）。 */
+export function peerReplayable(peer: PeerInfo): boolean {
+  if (!getAdapter(peer.harness)?.interactive) return false;
+  return discoverAgents().some((a) => a.name === peer.agent);
+}
+
 /**
  * 消息 completed 后调度空闲自动回收（monitor finish 调用）。
  *
@@ -599,7 +606,7 @@ export function peerResumable(peer: PeerInfo): boolean {
 export function scheduleIdleClose(peer: PeerInfo, config: SubagentConfig): void {
   cancelIdleClose(peer.peerId);
   if (!config.autoClose) return;
-  if (!peerResumable(peer)) return;
+  if (!peerResumable(peer) && !peerReplayable(peer)) return;
   idleCloseTimers.set(
     peer.peerId,
     setTimeout(() => {
@@ -627,6 +634,71 @@ export function cancelIdleClose(peerId: string): void {
 // ─── resume 重开（auto-close 后的复活路径）──────────────────────────────────
 
 /**
+ * 上下文重放：harness 没有原生 session id 时的恢复路径。
+ *
+ * 新开一个同角色/同 harness 的 peer，把旧 peerDir 的历史 brief/result
+ * 文件路径注入新会话，让模型自行读取恢复上下文。这是有损恢复（依赖模型
+ * 读文件），但跨 harness 通用；旧 peer 标记 replayedAs 指向新句柄。
+ */
+async function replayPeer(
+  peer: PeerInfo,
+  config: SubagentConfig,
+): Promise<PeerInfo | null> {
+  const agent = discoverAgents().find((a) => a.name === peer.agent);
+  const adapter = getAdapter(peer.harness);
+  if (!agent || !adapter?.interactive) return null;
+
+  let fresh: PeerInfo;
+  try {
+    fresh = await openPeer({
+      agent,
+      route: { harness: peer.harness, model: peer.model },
+      adapter,
+      config,
+      cwd: peer.cwd,
+      newTab: `sub:${peer.agent}`,
+    });
+  } catch (err) {
+    console.warn(
+      `[atelier:peer] ${peer.peerId} 上下文重放失败: ${(err as Error).message}`,
+    );
+    return null;
+  }
+
+  const history: string[] = [];
+  for (let i = 1; i <= peer.msgSeq; i++) {
+    const result = path.join(peer.peerDir, `result-${i}.md`);
+    if (fs.existsSync(result)) history.push(result);
+  }
+  const text = [
+    "# 上下文恢复（旧 pane 已回收，这是同一个任务的延续）",
+    `角色：${peer.agent}；工作目录：${peer.cwd}。`,
+    history.length > 0
+      ? `旧会话的历史结果文件（按顺序）：\n${history.map((p) => `- ${p}`).join("\n")}`
+      : "旧会话没有落盘结果。",
+    "请读取这些文件恢复上下文，然后只回复 READY，不要执行新任务。",
+  ].join("\n\n");
+
+  const backend = detectBackend();
+  try {
+    await (backend.promptAgent ?? backend.sendText).call(
+      backend,
+      fresh.paneId,
+      text,
+    );
+  } catch {
+    /* 恢复提示失败不阻塞后续 send */
+  }
+
+  peer.alive = false;
+  peer.lastStatus = "replayed";
+  peer.replayedAs = fresh.peerId;
+  writePeerJson(peer);
+  peers.delete(peer.peerId);
+  return fresh;
+}
+
+/**
  * 用 harness 原生 resume 恢复已关 peer：新标签页（失败回退同页分割）→
  * 起 resume 命令 → 等 TUI 就绪。peerId/peerDir/msgSeq/契约文件全部沿用，
  * 对调用方而言等价于 peer 从未死过。
@@ -637,7 +709,7 @@ export async function reopenPeer(
   peer: PeerInfo,
   config: SubagentConfig,
 ): Promise<PeerInfo | null> {
-  if (!peerResumable(peer)) return null;
+  if (!peerResumable(peer)) return replayPeer(peer, config);
   const adapter = getAdapter(peer.harness)!;
   const backend = tryBackend();
   if (!backend) return null;
