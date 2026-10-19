@@ -14,11 +14,24 @@ permissions:
   contents: write
 
 jobs:
+  # ── 0. 发布前校验：语法/模块图/契约冒烟（零依赖，不需要 mux 或模型）──
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node --check index.js hooks.js commands.js tools/*.js lib/*.js
+      - run: node --input-type=module -e "await import('./index.js')"
+      - run: npm test
+
   # ── 1. npm 发布（Trusted Publishing / OIDC，无长效 token）────────────
   # 幂等守卫：版本已存在于 registry 即跳过。首发必须是手工 publish（包先
   # 存在才能配 Trusted Publisher），且 name@version 永久不可复用——守卫
   # 保证重复推同一 tag 不会把 job 炸在 ENEEDAUTH/EEXIST 上。
   npm-publish:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

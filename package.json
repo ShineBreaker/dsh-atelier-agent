@@ -47,5 +47,10 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "scripts": {
+    "test": "node test/smoke.js",
+    "test:live": "HERDR_ENV=1 node test/e2e-drive.mjs",
+    "test:tui": "bash test/tui-smoke.sh"
   }
 }

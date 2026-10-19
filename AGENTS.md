@@ -1,41 +1,47 @@
 # AGENTS.md — dsh-atelier-agent
 
-DeepSeek Harness（DSH）的 atelier 移植版：基于 herdr/tmux 分屏的 **外部 agent CLI 编排**插件。`peer` 工具把任务派发到分屏 pane 里的持久 harness 会话（pi/hermes/claude/codex/任意 TUI agent），文件契约（`brief-N/result-N/status.json`）回收结果，harness 原生 resume 无损恢复。与 dsh 原生 `subagent`（进程内子 agent）**互补共存**：轻量子任务走 subagent，跨 CLI/持久/可见的编排走 peer。
+DSH 与外部 Agent CLI 之间的**协调器**。`peer` 工具把任务派发到 herdr/tmux 分屏 pane 里的持久 harness 会话（hermes/pi/claude/codex/任意 TUI agent），文件契约（`brief-N/result-N/status.json`）回收结果，空闲回收后经 harness 原生 resume 或上下文重放恢复。与 dsh 原生 `subagent`（进程内子 agent）**互补共存**：轻量子任务走 subagent，跨 CLI/持久/可见的协调走 peer。
 
-源与语义对齐 `pi atelier`（`Guix-configs/dotfiles/mutable/agents/pi/.config/pi/extensions/atelier/`），行为规格见其 AGENTS.md/README.md——本文只记 dsh 侧差异与约束。
+定位、职责边界与裁剪原则见 `docs/POSITIONING.md`；本文只记结构与约束。
 
 ## 结构
 
 | 层 | 文件 | 职责 |
 |---|---|---|
-| 入口 | `index.js` | 组合三半边 + 配置装配（atelier.json 真源 + cordis config 覆盖） |
-| 工具 | `tools/peer.js`、`tools/herdr.js` | `peer` 主工具（single/tasks/chain/send/wait/read/peers/close/list/status）；`herdr` 白名单原语工具 |
-| 命令 | `commands.js` | `/<agent> <task>`、`/<prompt> <param>`、`/atelier-resume`、`/atelier-workflow` |
-| hooks | `hooks.js` | systemPrompt 注入（worker/planner/griller）、`exit_plan_mode` plan gate、`agent/pre-step` 视觉移交、session 锚点 + 孤儿认领 |
-| lib | `lib/{message,state,paths,toml,define-tool}.js` | createUserMessage 复刻、操作状态表、XDG 路径、TOML 解析、defineTool 适配 |
-| 迁移层 | `core/ runtime/ registry/ lifecycle/ context/` | pi 机械搬迁的 `.ts` 逻辑（Node 24 type stripping 直跑，无构建） |
+| 入口 | `index.js` | 组合 peer 工具 / `/atelier` 命令 / hooks + 配置装配 |
+| 工具 | `tools/peer.js`、`core/schemas.js` | 派发（single/tasks/chain）与管理动作（list/peers/status/send/wait/read/focus/close） |
+| 命令 | `commands.js` | 单一 `/atelier` 人在环管理命令 |
+| hooks | `hooks.js` | 会话锚点（hostSession）+ 孤儿恢复触发 |
+| 核心 | `runtime/{peer,monitor,runner,launcher,recovery}.ts` | peer 生命周期、消息等待、single/parallel/chain、路径、崩溃恢复 |
+| harness | `runtime/harness/*` | spec 数据 → adapter、路由解析 |
+| mux | `runtime/multiplexer/*` | herdr / tmux 原语（含 10s 命令超时） |
+| 发现 | `core/{discovery,context,config,types}.ts` | agent .md 发现、路径、配置、类型 |
+| 适配 | `lib/{message,paths,toml,define-tool}.js` | 宿主消息、XDG 路径、TOML、defineTool 复刻 |
 
-## 关键约束（移植换来的教训）
+## 关键约束（改动前必读）
 
-- **禁 import `@deepseek-ai/*`**（link: 部署解析不到共享 fallback；agenote 同款禁令）。`createUserMessage` 等在 `lib/` 复刻。
-- **工具名 `peer`，不抢 `subagent`**：早期方案曾遮蔽原生 `subagent`（own 层手术摘除），后改为互补设计——原生工具族原样保留，atelier 以独立名字注册，零冲突、零时机敏感。教训存档：own 层工具不能 restrict/unregister、只能 `layers.peek(agent).tools.data.delete`，且 createAgent 期间 own 层插入晚于 `agent/created` 事件——若未来再需要遮蔽，机制是 `agent/created`→`setImmediate`→`restrict(deny)`（遮继承面）→`data.delete`（摘 own 层）→own 层注册。
-- **配置**：`~/.config/dsh-atelier/atelier.json` 优先，`~/.config/pi/atelier.json` 迁移回退。peer 目录 `$XDG_CACHE/dsh-atelier/subagents`；registry `$XDG_DATA/dsh-atelier/atelier-registry.db`。
-- **source kind**：自投递消息带 `source:{kind:"plugin:dsh-atelier-agent"}`，durable log 里可识别。
-- **pi 会话迁移**：`core/session.ts` 的 `hostSession.id` 由 `agent/created` 锚定（`session.header.id`），孤儿认领据此归属。
-- `.ts` 迁移层依赖 Node ≥23.6 type stripping；`bun:sqlite` 已换成 `node:sqlite`。
+- **禁 import `@deepseek-ai/*`**：link: 部署解析不到共享 fallback。`defineTool`、`createUserMessage` 等在 `lib/` 自持。
+- **工具名 `peer`，不抢 `subagent`**：原生工具族原样保留，零冲突、零时机敏感。早期遮蔽方案的教训：own 层工具不能 restrict/unregister，只能 `layers.peek(agent).tools.data.delete`；若未来需要遮蔽，机制是 `agent/created`→`setImmediate`→`restrict(deny)`→`data.delete`→own 层注册。
+- **文件契约是唯一真相源**：`peer.json` + `brief-N` + `result-N` + `status.json`。不引入 SQLite/第二种索引；崩溃恢复靠扫描 peer 目录（`runtime/recovery.ts`）。
+- **跨 harness 差异只进 `context/harnesses.toml`**，不在运行时代码里写单 CLI 分支。
+- **外部命令必须有 timeout**；禁止 `Atomics.wait` 之类阻塞事件循环的同步等待。
+- **配置**：`~/.config/dsh-atelier/atelier.json` 优先，`~/.config/pi/atelier.json` 迁移回退；peer 目录 `$XDG_CACHE/dsh-atelier/subagents`。
+- **source kind**：自投递消息带 `source:{kind:"plugin:dsh-atelier-agent"}`。
+- **会话锚点**：`hostSession.id` 由 `agent/created` 的 `session.header.id` 写入，peer.json 据此记录归属。
+- `.ts` 迁移层依赖 Node ≥23.6 type stripping，无构建。
 
 ## 验证
 
 ```bash
-node --check index.js hooks.js commands.js tools/*.js lib/*.js   # 语法
-node --input-type=module -e "await import('./index.js')"          # 模块图 + type stripping
-node test/e2e-drive.mjs <case|all>                                # headless E2E（fake-ctx + 真 herdr 派发）
-# 真实冷启动：dsh tui（改源码必须重启，运行中进程持旧模块图）
+npm test                                                        # 零依赖契约/恢复冒烟
+npm run test:live                                              # 真实 headless 派发 + 文件契约断言（需 HERDR_ENV + profile + 模型）
+npm run test:tui                                               # 真实 TUI 冷启动 + /atelier list
+node --check index.js hooks.js commands.js tools/*.js lib/*.js # 语法
 ```
 
-`test/e2e-drive.mjs` 用 fake ctx 捕获注册面，覆盖注册/list/注入/plan gate/视觉移交/孤儿恢复/管理动作；`wait`/`tasks`/`chain`/`peers`/`focus` 用例会经 herdr 真派 pi peer（自动回收）。需要 `HERDR_ENV=1`。
+`test/e2e-drive.mjs` 用 `dsh --profile <profile>` 发起真实会话，让模型调用 peer，轮询 `status.json` 终态后断言 brief/result 契约；不依赖 dsh 进程退出。环境不满足时 SKIP。CI 的 `test` job 只跑 `npm test`。
 
-端到端判据：会话里 `peer action=list` 返回 atelier 的 Agents/Harnesses 表；原生 `subagent` 同时可见且可调用；派发后 `$XDG_CACHE/dsh-atelier/subagents/<peerId>/` 出现 peer.json/brief-N/result-N/status.json。
+端到端判据：`$XDG_CACHE/dsh-atelier/subagents/<peerId>/` 出现 peer.json/brief-N/result-N/status.json；TUI 内 `/atelier list` 返回 Agents/Harnesses 表。
 
 ## 发布
 
@@ -44,6 +50,6 @@ npm + GitHub Release 双渠道，均由 tag 推送经 `.github/workflows/release
 1. semver 定性：patch = 不改行为（可攒批），minor = 新能力或行为变化（单独发）。
 2. `chore(release): 发布 vX.Y.Z`：版本号 + CHANGELOG 同 commit；manifest 类变更走独立 commit。
 3. tag 推送前核对：`git log --oneline -1 <tag>` 是 release commit，且 `git branch -a --contains <tag>` 有输出。
-4. **首发 bootstrap**（每个新包一次）：包须先在 npm 存在才能配 Trusted Publisher，故首发只能手工 `npm publish --access public`（本地发布无 provenance，TP 后的 CI 发布自动带）。首发成功后到包页 Settings → Trusted Publisher 配 GitHub Actions（Repository=ShineBreaker/dsh-atelier-agent，Workflow filename=release.yml）；**新配置 2 天内须有一次成功 OIDC 发布**，否则过期——配完尽快发一版激活。
-5. CI 幂等：registry 已存在该版本即跳过 npm 发布（name@version 永久不可复用，unpublish 也救不回），只建 GitHub Release。
-6. cohort 同步抬：DSH 出新 cohort 时抬 `peerDependencies["@deepseek-ai/dsh"]` 下限，**必须保留 `-rc.x` 后缀**（无后缀对预发布版 dsh 判不兼容）；`dsh.engines` 是死字段（无代码读取），已删，勿再写。
+4. **首发 bootstrap**（每个新包一次）：包须先在 npm 存在才能配 Trusted Publisher，故首发只能手工 `npm publish --access public`。首发成功后到包页 Settings → Trusted Publisher 配 GitHub Actions（Repository=ShineBreaker/dsh-atelier-agent，Workflow filename=release.yml）；**新配置 2 天内须有一次成功 OIDC 发布**，否则过期。
+5. CI 幂等：registry 已存在该版本即跳过 npm 发布（name@version 永久不可复用），只建 GitHub Release。
+6. cohort 同步抬：DSH 出新 cohort 时抬 `peerDependencies["@deepseek-ai/dsh"]` 下限，**必须保留 `-rc.x` 后缀**；`dsh.engines` 是死字段，勿再写。

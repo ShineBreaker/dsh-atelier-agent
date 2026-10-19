@@ -5,17 +5,16 @@ hermes / pi / claude / codex 等 CLI，把任务派发到持久会话，持续�
 纠偏，结构化收回结果，并在空闲后恢复会话。定位、职责边界与裁剪
 原则见 [docs/POSITIONING.md](docs/POSITIONING.md)。
 
-`peer` 工具把任务派发到分屏 pane 里的持久 harness 会话（pi/hermes/
-claude/codex/任意 TUI agent），文件契约（`brief-N.md`/`result-N.md`/
-`status.json`）结构化回收结果；peer 空闲超时自动回收 pane，`send` 时
-经 harness 原生 resume 或上下文重放恢复。与 dsh 原生 `subagent`
-（进程内子 agent）**互补共存**：轻量子任务走 `subagent`，跨 CLI
-厂商/持久交互/人工可见的协调走 `peer`。
+`peer` 工具把任务派发到分屏 pane 里的持久 harness 会话，文件契约
+（`brief-N.md`/`result-N.md`/`status.json`）结构化回收结果；peer 空闲
+超时自动回收 pane，`send` 时经 harness 原生 resume 或上下文重放恢复。
+与 dsh 原生 `subagent`（进程内子 agent）**互补共存**：轻量子任务走
+`subagent`，跨 CLI 厂商/持久交互/人工可见的协调走 `peer`。
 
 ## 安装
 
 ```sh
-# npm（发布后）
+# npm
 dsh plugin --profile <name> add dsh-atelier-agent@<version>
 # 开发期：本地仓库
 dsh plugin --profile <name> add git+file:///path/to/dsh-atelier-agent
@@ -36,38 +35,68 @@ profile manifest；手改 patch 时才需要上面这步。
 
 ### `peer` 工具（模型可见）
 
-- **派发**：`{agent:"worker", task:"..."}` 单发、`{tasks:[...]}` 并行、
-  `{chain:[...]}` 串行链。默认异步——立即返回句柄，完成后结果自动推送
-  回主会话；`wait:true` 才就地阻塞。
-- **管理**：`action:"send"` 向 peer 追加指令（忙碌=舵手纠偏、空闲=新
-  任务、已回收=resume 重开）；`action:"wait"|"read"|"peers"|"close"|
-  "list"|"status"`。
-- `action:"list"` 返回可用 agent、harness 与 prompt 模板清单。
+**派发**
 
-### `herdr` 工具（白名单原语）
+| 参数 | 语义 |
+|---|---|
+| `{agent, task}` | 单发。默认异步：立即返回 peerId，完成后推送结果 |
+| `{tasks: [...]}` | 并行，每个任务一个 peer |
+| `{chain: [...]}` | 串行链；`{previous}` / `{task}` 占位符；同 agent + 同 harness 复用同一 peer |
+| `wait: true` | 就地阻塞到本条消息完成（仅在后续工具强依赖结果时用） |
 
-status/workspaces/panes/agents/read/split/send——只读动作无副作用。
+**管理**（`action`）
 
-### 命令（人可见）
+| action | 语义 |
+|---|---|
+| `list` | 可用 agent / harness 清单 |
+| `peers` | 存活 peer 池 |
+| `status` | peer 元数据 + 当前 status.json |
+| `send` | 追加指令：忙碌=舵手纠偏，空闲=新任务，已回收=resume/重放恢复 |
+| `wait` | 收某 peer 当前消息结果 |
+| `read` | 读 peer 实时 transcript |
+| `focus` | 把 peer 的 pane 所在页拉到前台 |
+| `close` | 退役 peer |
 
-- `/<agent> <task>`：空上下文把该 agent 的 prompt 注入主会话；非空
-  直接派发 peer。
-- `/<prompt> <param>`：按模板派发 single/parallel/chain。
-- `/atelier-resume <parentRunId>`：从 checkpoint 续跳未完成的 chain。
-- `/atelier-workflow list|show <id>`：查看持久化 workflow。
+### `/atelier` 命令（人可见）
+
+```
+/atelier                 存活 peer 列表
+/atelier list            可用 agent / harness 清单
+/atelier read <id> [n]   读实时输出
+/atelier focus <id>      拉到前台
+/atelier send <id> <文本> 直接追加指令
+/atelier close <id>      退役
+/atelier recover         立即扫描并收尾孤儿
+```
 
 ### 配置
 
 `~/.config/dsh-atelier/atelier.json`（优先）或 `~/.config/pi/atelier.json`
-（迁移回退）；cordis config 行 `{atelier: {...}}` 可覆盖。字段同
-`core/types.ts` 的 `SubagentConfig`（tiers 路由、modelSchedules、
-defaultTier、idleGraceMs 等）。
+（迁移回退）；cordis config 行 `{atelier: {...}}` 可覆盖。主要字段：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `tiers` / `defaultTier` | `{}` / `pro` | tier → harness/model 路由链 |
+| `peerApproval` | `full` | harness 自治级别（full/safe/off） |
+| `autoClose` / `idleGraceMs` | `true` / `120000` | 完成后空闲回收与追问宽限期 |
+| `maxPeers` | `8` | 存活 peer 上限 |
+| `peerReadyTimeoutMs` | `30000` | TUI 就绪等待上限 |
+| `maxTasks` / `maxConcurrency` | `8` / `4` | 并行批次上限 |
+| `harnessArgs` | `{}` | per-harness 追加参数 |
+| `timeoutMs` | `1800000` | 单条消息等待上限 |
+
+agent 角色在 `context/agents/*.md`，用户可在
+`~/.config/dsh-atelier/agents/` 覆盖；harness 能力声明在
+`context/harnesses.toml`。
 
 ## 开发
 
 ```sh
-node --check index.js hooks.js commands.js tools/*.js lib/*.js   # 语法
-node --input-type=module -e "await import('./index.js')"           # 模块图
+npm test                                                        # 契约/恢复冒烟
+npm run test:live                                               # 真实 headless 派发（需 herdr + profile + 模型）
+npm run test:tui                                                # 真实 TUI 冷启动 + /atelier list
+node --check index.js hooks.js commands.js tools/*.js lib/*.js  # 语法
+node --input-type=module -e "await import('./index.js')"        # 模块图
 ```
 
 环境管理沿用仓库根的 direnv 约定（.envrc）；本包纯 Node 内置能力，
@@ -78,10 +107,17 @@ node --input-type=module -e "await import('./index.js')"           # 模块图
 1. **零 `@deepseek-ai` import**。dsh 核心家族只在 CLI 启动器的 pnpm
    虚拟树里；`defineTool` 用手搓等价物（lib/define-tool.js），宿主
    API 全经 ctx 服务与事件获取。
-2. **零依赖、零构建**。纯 ESM；SQLite 用 `node:sqlite`。
+2. **零依赖、零构建**。纯 ESM。
 3. **挂载行必须裸包名**。子路径行会让 `dsh.client` 声明被静默跳过。
-4. **工具名 `peer` 不抢 `subagent`**——互补设计的历史决策与遮蔽
+4. **文件契约是唯一真相源**。不引入第二种状态库。
+5. **工具名 `peer` 不抢 `subagent`**——互补设计的历史决策与遮蔽
    机制存档见 AGENTS.md。
+
+## 桌面端
+
+Web / Electron 桌面共用同一套客户端插件机制（`dsh.client` + 客户端
+slot）。宿主侧通过 `ctx.connection.rpc` 暴露 peer 状态；客户端面板
+见 `client.js`（若存在）。TUI 与桌面共用同一份宿主状态与文件契约。
 
 ## License
 
