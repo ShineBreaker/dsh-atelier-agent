@@ -1,14 +1,16 @@
 # dsh-atelier-agent
 
-pi atelier 的 dsh（DeepSeek Harness）移植版：基于 herdr/tmux 分屏的
-**外部 agent CLI 编排**插件。
+DSH 与外部 Agent CLI 之间的**协调器**：让 DSH 主会话发现本机的
+hermes / pi / claude / codex 等 CLI，把任务派发到持久会话，持续追问、
+纠偏，结构化收回结果，并在空闲后恢复会话。定位、职责边界与裁剪
+原则见 [docs/POSITIONING.md](docs/POSITIONING.md)。
 
 `peer` 工具把任务派发到分屏 pane 里的持久 harness 会话（pi/hermes/
 claude/codex/任意 TUI agent），文件契约（`brief-N.md`/`result-N.md`/
 `status.json`）结构化回收结果；peer 空闲超时自动回收 pane，`send` 时
-经 harness 原生 resume 无损恢复。与 dsh 原生 `subagent`（进程内子
-agent）**互补共存**：轻量子任务走 `subagent`，跨 CLI 厂商/持久交互/
-人工可见的编排走 `peer`。
+经 harness 原生 resume 或上下文重放恢复。与 dsh 原生 `subagent`
+（进程内子 agent）**互补共存**：轻量子任务走 `subagent`，跨 CLI
+厂商/持久交互/人工可见的协调走 `peer`。
 
 ## 安装
 
