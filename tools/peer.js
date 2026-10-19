@@ -19,7 +19,6 @@ import { defineTool } from "../lib/define-tool.js";
 import { PeerParams } from "../core/schemas.js";
 import { deliver, sessionCwd } from "../lib/message.js";
 import { discoverAgents, discoverPrompts } from "../core/discovery.ts";
-import { ensureWorkfile } from "../runtime/workfile.ts";
 import { generateRunId, getRunDir } from "../runtime/launcher.ts";
 import { waitForPeerMessage, listRunning } from "../runtime/monitor.ts";
 import {
@@ -46,7 +45,6 @@ import {
   readDefaultModelFromSettings,
 } from "../runtime/runner.ts";
 import { formatResults } from "../runtime/formatting.ts";
-import { appendSessionLog } from "../runtime/session-log.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -121,13 +119,12 @@ const attachBatchPush = (agent, batchId, mode, p) => {
     }
     pendingOps.delete(batchId);
     finishedOps.set(batchId, { mode, results });
-    appendSessionLog(mode, results);
     deliver(agent, formatBatchPush(batchId, mode, results));
   });
 };
 
 /** peer 单消息 watcher：完成即推送（被显式 wait 认领则跳过） */
-const watchPeerAndPush = (agent, peer, seq, startedAt, cwd, config) => {
+const watchPeerAndPush = (agent, peer, seq, config) => {
   const msgId = `${peer.peerId}-m${seq}`;
   if (watchedPeers.has(msgId)) return;
   watchedPeers.set(msgId, String(agent?.id ?? ""));
@@ -139,9 +136,7 @@ const watchPeerAndPush = (agent, peer, seq, startedAt, cwd, config) => {
       return;
     }
     if (result.status === "completed") {
-      ensureWorkfile(result, cwd, startedAt);
     }
-    appendSessionLog("single", [result]);
     deliver(
       agent,
       [
@@ -284,7 +279,7 @@ export const definition = defineTool({
         const busyBefore = peerBusy(peer);
         const sent = sendToPeer(peer, task, { images: params.images });
         if (!params.wait && sent.isNewTask)
-          watchPeerAndPush(hostAgent, peer, sent.seq, Date.now(), effectiveCwd, config);
+          watchPeerAndPush(hostAgent, peer, sent.seq, config);
         if (params.wait) {
           const result = await waitForPeerMessage(peer, sent.seq, config, signal);
           return result.output;
@@ -311,7 +306,6 @@ export const definition = defineTool({
         pendingOps.delete(params.id);
         claimedBatches.add(params.id);
         const results = await pending.p;
-        appendSessionLog(pending.mode, results);
         return formatResults(results);
       }
       const finished = finishedOps.get(params.id);
@@ -331,7 +325,6 @@ export const definition = defineTool({
       const result = await waitForPeerMessage(peer, seq, config, signal);
       if (!watchedPeers.has(waitMsgId)) claimedPeers.delete(waitMsgId);
       if (result.status === "completed") {
-        ensureWorkfile(result, effectiveCwd, Date.now() - result.durationMs);
       }
       return result.output;
     }
@@ -426,7 +419,6 @@ export const definition = defineTool({
           signal,
           params.harness,
         );
-        appendSessionLog("chain", results);
         return formatResults(results);
       } catch (err) {
         return `启动失败: ${err.message}`;
@@ -473,7 +465,6 @@ export const definition = defineTool({
           signal,
           params.harness,
         );
-        appendSessionLog("parallel", results);
         return formatResults(results);
       } catch (err) {
         return `启动失败: ${err.message}`;
@@ -494,7 +485,6 @@ export const definition = defineTool({
       }
 
       try {
-        const startedAt = Date.now();
         let peer = null;
         if (params.peer) {
           peer = await ensurePeer(params.peer, config);
@@ -525,9 +515,7 @@ export const definition = defineTool({
             params.harness,
           );
           if (result.status === "completed") {
-            ensureWorkfile(result, effectiveCwd, startedAt);
           }
-          appendSessionLog("single", [result]);
           return result.output;
         }
 
@@ -561,14 +549,12 @@ export const definition = defineTool({
         }
         const sent = sendToPeer(peer, params.task, { images: params.images });
         if (params.wait !== true && sent.isNewTask) {
-          watchPeerAndPush(hostAgent, peer, sent.seq, startedAt, effectiveCwd, config);
+          watchPeerAndPush(hostAgent, peer, sent.seq, config);
         }
         if (params.wait === true) {
           const result = await waitForPeerMessage(peer, sent.seq, config, signal);
           if (result.status === "completed") {
-            ensureWorkfile(result, effectiveCwd, startedAt);
           }
-          appendSessionLog("single", [result]);
           return result.output;
         }
         return (

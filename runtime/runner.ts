@@ -32,7 +32,6 @@ import {
   getAdapter,
   resolveRouteChain,
 } from "./harness/resolve.ts";
-import { ensureWorkfile } from "./workfile.ts";
 import { isSystemAgent } from "../core/system-agents.ts";
 
 /**
@@ -213,7 +212,6 @@ export async function runParallelBatches(
     1,
     Math.min(config.maxConcurrency, config.maxTasks),
   );
-  const startedAt = Date.now();
   const parentRunId = parentRunIdIn ?? generateRunId();
   let rowAnchorPaneId: string | undefined;
 
@@ -292,12 +290,6 @@ export async function runParallelBatches(
     results.push(...batchResults);
   }
 
-  // 验证 workfile（agent 未自行写入时兜底持久化）
-  for (const r of results) {
-    if (r.status === "completed") {
-      ensureWorkfile(r, cwd, startedAt);
-    }
-  }
 
   return results;
 }
@@ -334,7 +326,6 @@ export async function runChain(
   let rowAnchorPaneId: string | undefined;
   /** PR-12: 上一步的 peer——同 agent+同 harness 时复用（上下文零损耗） */
   let prevPeer: PeerInfo | null = null;
-  const startedAt = Date.now();
 
   // 异步派发时调用方预生成 parentRunId（wait:false 返回给主 agent 的句柄）。
   const parentRunId = parentRunIdIn ?? generateRunId();
@@ -430,19 +421,10 @@ export async function runChain(
     }
     prevPeer = stepPeer && stepPeer.alive ? stepPeer : null;
 
-    // 验证 workfile
-    if (result.status === "completed") {
-      ensureWorkfile(result, cwd, startedAt);
-    }
 
-    // 将 workfile 路径注入到下一步的上下文中
-    let outputWithContext = result.output;
-    if (result.workfilePath) {
-      outputWithContext += `\n\n---\n上一步工作产物已持久化到: ${result.workfilePath}`;
-    }
 
     results.push(result);
-    previous = outputWithContext;
+    previous = result.output;
     if (result.status === "failed") {
       break;
     }

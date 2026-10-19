@@ -133,7 +133,6 @@ export interface RunResult {
   durationMs: number;
   tmuxPane: string;
   error?: string;
-  workfilePath?: string;
   /** PR-12: 执行该 run 的 peer id（peer 模式下 = 承载 pane 的稳定句柄） */
   peerId?: string;
   /** PR-12: 该 run 使用的 harness id */

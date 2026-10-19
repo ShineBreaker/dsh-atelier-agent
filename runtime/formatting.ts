@@ -11,7 +11,6 @@ import type { RunResult } from "../core/types.ts";
 /** 格式化单个 agent 的运行结果（含 workfile 路径提示） */
 export function formatResult(r: RunResult): string {
   const icon = r.status === "completed" ? "✓" : "✗";
-  const workfile = r.workfilePath ? `\n📄 工作产物: ${r.workfilePath}` : "";
   return `### [${r.agent}] ${icon} (${r.durationMs}ms)${workfile}\n\n${r.output}`;
 }
 
