@@ -73,17 +73,9 @@ export function cleanupOldRuns(config: SubagentConfig): void {
       return { name, runDir, status, mtimeMs };
     })
     .filter((run) => run.status?.status !== "running")
-    // PR-12: peer.json alive=true 的目录是活 peer 的资产，永不清
-    .filter((run) => {
-      try {
-        const peer = JSON.parse(
-          fs.readFileSync(path.join(run.runDir, "peer.json"), "utf-8"),
-        ) as { alive?: boolean };
-        return peer.alive !== true;
-      } catch {
-        return true; // 无 peer.json → 普通 run 目录，照常清理
-      }
-    })
+    // peer 目录是持久资产（已关闭的 peer 还要靠它 resume），永不清；
+    // 只回收没有 peer.json 的批处理时代遗留 run。
+    .filter((run) => !fs.existsSync(path.join(run.runDir, "peer.json")))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
   for (const run of runs.slice(config.keepResults)) {

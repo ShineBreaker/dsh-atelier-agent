@@ -373,9 +373,37 @@ export async function openPeer(opts: OpenPeerOpts): Promise<PeerInfo> {
     approval: config.peerApproval,
     extraArgs: config.harnessArgs[adapter.id],
   };
-  if (!startViaAgentStart(peer, backend, adapter, launchOpts, config.peerReadyTimeoutMs)) {
-    backend.sendText(paneId, adapter.launchCommand(launchOpts));
-    await waitPeerReady(peer, backend, config.peerReadyTimeoutMs);
+  try {
+    if (!startViaAgentStart(peer, backend, adapter, launchOpts, config.peerReadyTimeoutMs)) {
+      backend.sendText(paneId, adapter.launchCommand(launchOpts));
+      await waitPeerReady(peer, backend, config.peerReadyTimeoutMs);
+    }
+  } catch (err) {
+    // 启动失败不留半开 peer：pane、peer.json、内存表一起回收
+    peer.alive = false;
+    peer.lastStatus = "launch-failed";
+    writePeerJson(peer);
+    peers.delete(peerId);
+    try {
+      backend.kill(paneId);
+    } catch {
+      /* pane 可能已消失 */
+    }
+    try {
+      fs.writeFileSync(
+        path.join(peerDir, "status.json"),
+        JSON.stringify({
+          status: "failed",
+          msgSeq: 0,
+          finishedAt: Date.now(),
+          error: `launch failed: ${(err as Error).message}`,
+        }),
+        "utf-8",
+      );
+    } catch {
+      /* best-effort */
+    }
+    throw err;
   }
   return peer;
 }
@@ -677,9 +705,26 @@ export async function reopenPeer(
       started = false;
     }
   }
-  if (!started) {
-    backend.sendText(paneId, adapter.resumeCommand!(resumeOpts));
-    await waitPeerReady(peer, backend, config.peerReadyTimeoutMs);
+  try {
+    if (!started) {
+      backend.sendText(paneId, adapter.resumeCommand!(resumeOpts));
+      await waitPeerReady(peer, backend, config.peerReadyTimeoutMs);
+    }
+  } catch (err) {
+    // resume 失败不能留一个 alive=true 的假 peer
+    peer.alive = false;
+    peer.lastStatus = "resume-failed";
+    writePeerJson(peer);
+    peers.delete(peer.peerId);
+    try {
+      backend.kill(paneId);
+    } catch {
+      /* pane 可能已消失 */
+    }
+    console.warn(
+      `[atelier:peer] ${peer.peerId} resume 失败: ${(err as Error).message}`,
+    );
+    return null;
   }
   return peer;
 }
@@ -690,35 +735,71 @@ export async function reopenPeer(
  *
  * @returns null = peer 不存在或无法恢复（无 session 锚点）
  */
+const reopening = new Map<string, Promise<PeerInfo | null>>();
+
 export async function ensurePeer(
   peerId: string,
   config: SubagentConfig,
 ): Promise<PeerInfo | null> {
   const alive = getPeer(peerId);
   if (alive) return alive;
-  const disk = readPeerJson(path.join(getSubagentsDir(), peerId));
-  if (!disk) return null;
-  return reopenPeer(disk, config);
+  // 同一 peer 的并发 send 只允许一次 reopen，避免双开 pane/互相覆盖 peer.json
+  const inflight = reopening.get(peerId);
+  if (inflight) return inflight;
+  const task = (async () => {
+    try {
+      const disk = readPeerJson(path.join(getSubagentsDir(), peerId));
+      if (!disk) return null;
+      return await reopenPeer(disk, config);
+    } finally {
+      reopening.delete(peerId);
+    }
+  })();
+  reopening.set(peerId, task);
+  return task;
 }
 
 /** 退役 peer：关 pane + 标记不再存活；同页最后一个 peer 关闭时顺手回收空标签页 */
 export function closePeer(peer: PeerInfo): void {
   cancelIdleClose(peer.peerId);
-  detectBackend().kill(peer.paneId);
+  try {
+    detectBackend().kill(peer.paneId);
+  } catch {
+    /* pane 可能已消失 */
+  }
   peer.alive = false;
   peer.lastStatus = "closed";
   writePeerJson(peer);
   peers.delete(peer.peerId);
-  // 空页回收：同 tabId 下无其他存活 peer → 关页（tmux 末 pane 自闭页时 closeTab 静默无操作）
+
+  // status.json 若仍卡 running，写失败终态：否则 reopen 后 peerBusy 会把
+  // 下一条 send 误判成"舵手消息"，不写 brief、不递增 seq、不建 watcher。
+  const statusPath = path.join(peer.peerDir, "status.json");
+  try {
+    const status = JSON.parse(fs.readFileSync(statusPath, "utf-8"));
+    if (status.status === "running") {
+      fs.writeFileSync(
+        statusPath,
+        JSON.stringify({
+          ...status,
+          status: "failed",
+          finishedAt: Date.now(),
+          error: "peer closed",
+        }),
+        "utf-8",
+      );
+    }
+  } catch {
+    /* 无 status.json → 无需收尾 */
+  }
+
+  // 空页回收：同 tabId 下无其他存活 peer → 关页。用磁盘真相而不是内存表：
+  // 重启后内存表是空的，用内存会误杀同页仍存活的兄弟。
   if (peer.tabId) {
     const tabId = peer.tabId;
-    let siblingAlive = false;
-    for (const p of peers.values()) {
-      if (p.tabId === tabId && p.alive) {
-        siblingAlive = true;
-        break;
-      }
-    }
+    const siblingAlive = listPeers().some(
+      (p) => p.tabId === tabId && p.peerId !== peer.peerId,
+    );
     if (!siblingAlive) {
       try {
         detectBackend().closeTab(tabId);
