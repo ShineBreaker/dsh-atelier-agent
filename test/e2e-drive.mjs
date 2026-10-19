@@ -147,25 +147,6 @@ if (case_ === "mgmt" || case_ === "all") {
   }
 }
 
-if (case_ === "workflow" || case_ === "all") {
-  console.log("── /atelier-workflow ──");
-  const wf = commands.get("atelier-workflow");
-  out.wfList = (await wf.handler({ rawInput: "list", agent })).text.slice(0, 400);
-  const id = out.wfList.match(/wf-[a-z0-9-]+/)?.[0];
-  if (id) out.wfShow = (await wf.handler({ rawInput: `show ${id}`, agent })).text.slice(0, 400);
-}
-
-if (case_ === "resume" || case_ === "all") {
-  console.log("── /atelier-resume（已完成链 → 无需续跳）──");
-  const rs = commands.get("atelier-resume");
-  const wf = commands.get("atelier-workflow");
-  const list = (await wf.handler({ rawInput: "list", agent })).text;
-  const id = list.match(/sa-[a-z0-9-]+/)?.[0]; // resume 吃 parentRunId（chain 句柄）
-  out.resumeDone = id
-    ? (await rs.handler({ rawInput: id, agent })).text
-    : "无 workflow 可测";
-}
-
 if (case_ === "plangate" || case_ === "all") {
   console.log("── plan gate ──");
   const execPayload = {

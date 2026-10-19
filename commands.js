@@ -6,8 +6,6 @@
  * atelier 命令半边 — pi registerCommand 块的 dsh 移植：
  *   - /<agent> <task>    — 空上下文注入 agent prompt；非空派发 peer（异步 + 推送）
  *   - /<prompt> <param>  — 按模板派发 single/parallel/chain（异步 + 推送）
- *   - /atelier-resume <parentRunId> — 从 checkpoint 续跳 chain
- *   - /atelier-workflow list|show <id> — 查看持久化 workflow
  *
  * 差异：pi 的 ctx.ui.notify 只读回显 → dsh handler 返回 {kind,text}；
  * 派发类结果统一走 followup 推送（与工具异步语义一致，不阻塞命令）。
@@ -29,8 +27,6 @@ import {
 } from "./runtime/runner.ts";
 import { formatResults } from "./runtime/formatting.ts";
 import { appendSessionLog } from "./runtime/session-log.ts";
-import { resumeChain } from "./lifecycle/resume.ts";
-import { loadWorkflow, listWorkflows } from "./lifecycle/workflow.ts";
 
 export const name = "atelier-commands";
 export const inject = ["commands"];
@@ -194,103 +190,6 @@ export function apply(ctx, cfg) {
       }),
     );
   }
-
-  // ── /atelier-resume <parentRunId> ────────────────────────────────────
-  disposers.push(
-    ctx.commands.register({
-      definitionId: "dsh-atelier-agent.resume",
-      name: "atelier-resume",
-      description: "从 checkpoint 续跳 chain。用法: /atelier-resume <parentRunId>",
-      handler: async (invocation) => {
-        const parentRunId = invocation.rawInput.trim();
-        if (!parentRunId) {
-          return { kind: "error", text: "❌ 用法: /atelier-resume <parentRunId>" };
-        }
-        const hostAgent = invocation.agent;
-        const cwd = sessionCwd(hostAgent);
-
-        let plan;
-        try {
-          const result = resumeChain(parentRunId, {}, cwd);
-          if ("finished" in result) {
-            return {
-              kind: "success",
-              text: `✓ ${parentRunId} 已全部完成（${result.totalSteps} 步），无需续跳`,
-            };
-          }
-          plan = result;
-        } catch (err) {
-          return {
-            kind: "error",
-            text: `❌ resume 失败: ${err instanceof Error ? err.message : String(err)}`,
-          };
-        }
-
-        const chainEntries = [];
-        for (const step of plan.remainingSteps) {
-          const a = agents.find((x) => x.name === step.agent);
-          if (!a) {
-            const available = agents.map((x) => x.name).join(", ") || "none";
-            return {
-              kind: "error",
-              text: `❌ 续跳中止：step "${step.id}" 引用的 agent "${step.agent}" 不存在。可用: ${available}`,
-            };
-          }
-          chainEntries.push({
-            agent: a,
-            task: step.task.replaceAll("{previous}", plan.inheritedContextSnapshot),
-          });
-        }
-
-        void (async () => {
-          const results = await runChain(
-            chainEntries,
-            config,
-            cwd,
-            plan.inheritedContextSnapshot,
-          );
-          appendSessionLog("chain", results);
-          pushResults(hostAgent, `resume ${parentRunId}`, results);
-        })().catch((err) =>
-          deliver(hostAgent, `❌ resume ${parentRunId} dispatch 失败: ${err.message}`),
-        );
-        return {
-          kind: "success",
-          text: `⏳ ${parentRunId} 续跳中：已完成 ${plan.currentStep + 1}/${plan.totalSteps} 步，剩 ${plan.remainingSteps.length} 步，正在 dispatch…`,
-        };
-      },
-    }),
-  );
-
-  // ── /atelier-workflow list|show <id> ─────────────────────────────────
-  disposers.push(
-    ctx.commands.register({
-      definitionId: "dsh-atelier-agent.workflow",
-      name: "atelier-workflow",
-      description: "查看 workflow list/show。子命令: list | show <id>",
-      handler: async (invocation) => {
-        const cwd = sessionCwd(invocation.agent);
-        const parts = invocation.rawInput.trim().split(/\s+/);
-        const sub = parts[0] ?? "list";
-        if (sub === "list") {
-          const items = listWorkflows(cwd);
-          if (items.length === 0) return { kind: "success", text: "（无 workflow）" };
-          const lines = items.map((w) => `  ${w.id}  ${w.name}  [${w.mode}]`).join("\n");
-          return { kind: "success", text: `Workflows:\n${lines}` };
-        }
-        if (sub === "show" && parts[1]) {
-          const wf = loadWorkflow(cwd, parts[1]);
-          if (!wf) return { kind: "error", text: `❌ 未找到 workflow id=${parts[1]}` };
-          const summary = JSON.stringify(wf, null, 2).slice(0, 1500);
-          return {
-            kind: "success",
-            text: `${summary}${wf.steps.length > 0 ? "\n..." : ""}`,
-          };
-        }
-        return { kind: "error", text: "❌ 用法: /atelier-workflow list | show <id>" };
-      },
-    }),
-  );
 
   return () => {
     for (const d of disposers) d?.();

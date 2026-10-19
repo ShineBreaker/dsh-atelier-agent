@@ -34,13 +34,6 @@ import {
 } from "./harness/resolve.ts";
 import { ensureWorkfile } from "./workfile.ts";
 import { isSystemAgent } from "../core/system-agents.ts";
-import {
-  createCheckpoint,
-  markCheckpointFailed,
-  markStepCompleted,
-  writeCheckpoint,
-} from "../lifecycle/checkpoint.ts";
-import { generateWorkflowId, persistWorkflow } from "../lifecycle/workflow.ts";
 
 /**
  * 从 settings.json 读 defaultProvider + defaultModel，组合成完整 model ID。
@@ -343,56 +336,8 @@ export async function runChain(
   let prevPeer: PeerInfo | null = null;
   const startedAt = Date.now();
 
-  // PR-10: 为整个 chain 生成一个 parentRunId；所有 step 的 registerRun 关联到此 id。
-  // 同时创建 checkpoint（5 节格式 YAML）与 Workflow（PR-11 JSON）并持久化。
-  // PR-12: 异步派发时调用方预生成（wait:false 返回给主 agent 的句柄）。
+  // 异步派发时调用方预生成 parentRunId（wait:false 返回给主 agent 的句柄）。
   const parentRunId = parentRunIdIn ?? generateRunId();
-  const intent = (rootTask ?? steps[0]?.task ?? "").slice(0, 200);
-
-  let checkpoint: ReturnType<typeof createCheckpoint> | null = null;
-  let workflow: import("./workflow.ts").Workflow | null = null;
-  try {
-    checkpoint = createCheckpoint(
-      parentRunId,
-      "chain",
-      steps.map((s, idx) => ({
-        id: `step-${idx + 1}`,
-        agent: s.agent.name,
-        task: s.task,
-      })),
-      intent,
-    );
-    writeCheckpoint(checkpoint, cwd);
-  } catch (err) {
-    console.warn(
-      `[atelier:runner] chain ${parentRunId} createCheckpoint failed:`,
-      err,
-    );
-    checkpoint = null;
-  }
-  try {
-    workflow = {
-      id: generateWorkflowId(),
-      name: `chain-${parentRunId}`,
-      mode: "chain",
-      steps: steps.map((s, idx) => ({
-        id: `step-${idx + 1}`,
-        agent: s.agent.name,
-        task: s.task,
-        dependsOn: idx === 0 ? [] : [`step-${idx}`],
-        status: "pending",
-      })),
-      context: { task: rootTask ?? "" },
-      parentRunId,
-    };
-    persistWorkflow(workflow, cwd);
-  } catch (err) {
-    console.warn(
-      `[atelier:runner] chain ${parentRunId} workflow persist failed:`,
-      err,
-    );
-    workflow = null;
-  }
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
@@ -490,36 +435,6 @@ export async function runChain(
       ensureWorkfile(result, cwd, startedAt);
     }
 
-    // PR-10: 每完成一步写 checkpoint（写盘 + 更新 workflow 状态 + persist）
-    if (checkpoint) {
-      try {
-        checkpoint = markStepCompleted(checkpoint, i, {
-          runId: result.runId,
-          workfilePath: result.workfilePath,
-          outputPreview: result.output.slice(0, 500),
-          inheritedContextForNext: previous.slice(0, 2000),
-        });
-        writeCheckpoint(checkpoint, cwd);
-      } catch (err) {
-        console.warn(
-          `[atelier:runner] chain ${parentRunId} step ${i + 1} markStepCompleted failed:`,
-          err,
-        );
-      }
-    }
-    if (workflow) {
-      try {
-        workflow.steps[i].status =
-          result.status === "completed" ? "completed" : "failed";
-        persistWorkflow(workflow, cwd);
-      } catch (err) {
-        console.warn(
-          `[atelier:runner] chain ${parentRunId} workflow step ${i + 1} persist failed:`,
-          err,
-        );
-      }
-    }
-
     // 将 workfile 路径注入到下一步的上下文中
     let outputWithContext = result.output;
     if (result.workfilePath) {
@@ -529,21 +444,6 @@ export async function runChain(
     results.push(result);
     previous = outputWithContext;
     if (result.status === "failed") {
-      if (checkpoint) {
-        try {
-          checkpoint = markCheckpointFailed(
-            checkpoint,
-            i,
-            result.error ?? "failed",
-          );
-          writeCheckpoint(checkpoint, cwd);
-        } catch (err) {
-          console.warn(
-            `[atelier:runner] chain ${parentRunId} markCheckpointFailed failed:`,
-            err,
-          );
-        }
-      }
       break;
     }
   }

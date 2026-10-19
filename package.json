@@ -22,7 +22,6 @@
     "core/",
     "runtime/",
     "registry/",
-    "lifecycle/",
     "context/",
     "cordis.patch.yml",
     "test/",
