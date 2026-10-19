@@ -89,11 +89,7 @@ export const PeerParams = {
     },
     isSystemSpawned: {
       type: "boolean",
-      description: "PR-9: 系统子 agent 标记（默认 false）",
-    },
-    action_ext: {
-      type: "string",
-      description: "PR-10: 扩展动作（resume <runId>）",
+      description: "系统子 agent 标记（默认 false）",
     },
   },
 };

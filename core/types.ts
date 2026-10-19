@@ -185,23 +185,6 @@ export interface PeerInfo {
   lastStatus?: string;
 }
 
-/** 返回给 tool caller 的 details 结构 */
-export interface SubagentDetails {
-  mode:
-    | "single"
-    | "parallel"
-    | "chain"
-    | "list"
-    | "status"
-    // PR-12: peer 管理动作
-    | "peers"
-    | "send"
-    | "wait"
-    | "read"
-    | "close";
-  results: RunResult[];
-}
-
 /** run 目录下的 status.json 文件结构 */
 export interface StatusFile {
   status: "running" | "completed" | "failed";

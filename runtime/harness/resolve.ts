@@ -33,22 +33,13 @@ import type { HarnessAdapter } from "./types.ts";
  * harnesses.toml）生成的 adapter 索引。惰性：spec 文件读取有 getAgentDir
  * 副作用，不能在 import 时求值；一次加载后缓存（与 binaryCache 同假设）。
  */
-function adapterIndexes(): {
-  byId: Map<string, HarnessAdapter>;
-  byKind: Map<string, HarnessAdapter>;
-} {
-  const adapters = knownAdapters();
-  return {
-    byId: new Map(adapters.map((a) => [a.id, a])),
-    byKind: new Map(
-      adapters.filter((a) => a.herdrKind).map((a) => [a.herdrKind!, a]),
-    ),
-  };
+function adapterIndexes(): Map<string, HarnessAdapter> {
+  return new Map(knownAdapters().map((a) => [a.id, a]));
 }
 
-let indexCache: ReturnType<typeof adapterIndexes> | null = null;
+let indexCache: Map<string, HarnessAdapter> | null = null;
 
-function adapterIndex(): ReturnType<typeof adapterIndexes> {
+function adapterIndex(): Map<string, HarnessAdapter> {
   if (!indexCache) indexCache = adapterIndexes();
   return indexCache;
 }
@@ -77,14 +68,14 @@ export function findBinary(name: string): string | null {
  * 都没有返回 null。
  */
 export function getAdapter(id: string): HarnessAdapter | null {
-  const known = adapterIndex().byId.get(id);
+  const known = adapterIndex().get(id);
   if (known) return findBinary(known.binaries[0]) ? known : null;
   return findBinary(id) ? genericAdapter(id) : null;
 }
 
 /** 只看 spec 表（不测 PATH）：用于 "x/y" 首段是否 harness 名的判定 */
 export function isKnownHarnessId(id: string): boolean {
-  return adapterIndex().byId.has(id);
+  return adapterIndex().has(id);
 }
 
 /** adapter 是否可用（至少一个 binary 在 PATH） */
@@ -95,11 +86,6 @@ export function adapterAvailable(a: HarnessAdapter): boolean {
 /** 列出当前可用的全部 harness（action:list 用；含用户 spec 扩展项） */
 export function listAvailableHarnesses(): HarnessAdapter[] {
   return knownAdapters().filter(adapterAvailable);
-}
-
-/** 按 herdr kind 名反查 adapter（herdr agent get 报的 agent 名 → 我们的 id） */
-export function adapterByHerdrKind(kind: string): HarnessAdapter | null {
-  return adapterIndex().byKind.get(kind) ?? null;
 }
 
 // ─── 路由条目解析 ─────────────────────────────────────────────────────────────
