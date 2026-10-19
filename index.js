@@ -20,6 +20,7 @@ import * as peerTool from "./tools/peer.js";
 import * as commands from "./commands.js";
 import * as hooks from "./hooks.js";
 import { loadConfig } from "./core/config.ts";
+import { RPC_CHANNEL, createRpcHandler } from "./runtime/rpc.ts";
 
 export const name = "dsh-atelier-agent";
 
@@ -41,6 +42,25 @@ export function apply(ctx, config = {}) {
     commands.apply(ctx, cfg),
     hooks.apply(ctx, cfg),
   ];
+
+  // 可选半边：只有 Web / Electron 宿主有 connection 服务。TUI/headless
+  // 不满足依赖，回调永不执行，也不阻塞其余注册。
+  if (typeof ctx.inject === "function") {
+    ctx.inject(["connection"], (scoped) => {
+      const rpc = scoped.connection?.rpc;
+      if (typeof rpc?.handle !== "function") return;
+      try {
+        // 路由由 connection 自己的 owner fiber 持有（handle 内部 effect），
+        // 不要把它作为本 inject 回调的返回值——那会被 scope 立即回收。
+        rpc.handle(RPC_CHANNEL, createRpcHandler(atelierConfig));
+        ctx.logger?.info?.(`[atelier:rpc] registered ${RPC_CHANNEL}`);
+      } catch (err) {
+        // connection 缺 webServer 注入时 rpc.handle 会抛；Web/Desktop 的
+        // profile 需要给 connection 行补 `inject: [webStartup, webServer]`。
+        ctx.logger?.warn?.(`[atelier:rpc] register failed: ${String(err)}`);
+      }
+    });
+  }
   return () => {
     for (const d of disposers) d?.();
   };
