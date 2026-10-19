@@ -16,7 +16,6 @@
  * 覆盖（{atelier: {...字段覆盖}}、{enabled}）。字段同 SubagentConfig。
  */
 
-import * as herdrTool from "./tools/herdr.js";
 import * as peerTool from "./tools/peer.js";
 import * as hooks from "./hooks.js";
 import { loadConfig } from "./core/config.ts";
@@ -37,7 +36,6 @@ export function apply(ctx, config = {}) {
 
   // 工具半边内部各取所需：apply 返回的都是 disposer。
   const disposers = [
-    ctx.tools.register(herdrTool.definition),
     peerTool.apply(ctx, cfg),
     hooks.apply(ctx, cfg),
   ];
