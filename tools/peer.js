@@ -88,6 +88,7 @@ const finishedOps = new Map(); // batchId → { mode, results }
 const claimedBatches = new Set();
 const watchedPeers = new Map(); // "<peerId>-m<seq>" → agentId
 const claimedPeers = new Set();
+const disposedAgents = new Set(); // 会话已销毁：停止 watcher、不再推送
 
 const pendingCatch = (p) =>
   p.catch((err) => [
@@ -112,6 +113,7 @@ const formatBatchPush = (id, mode, results) =>
 
 /** 批次后台推送：完成投递（被显式 wait 认领则跳过）。agent 为派发所在会话。 */
 const attachBatchPush = (agent, batchId, mode, p) => {
+  const ownerId = String(agent?.id ?? "");
   void p.then((results) => {
     if (claimedBatches.has(batchId)) {
       claimedBatches.delete(batchId);
@@ -119,6 +121,7 @@ const attachBatchPush = (agent, batchId, mode, p) => {
     }
     pendingOps.delete(batchId);
     finishedOps.set(batchId, { mode, results });
+    if (disposedAgents.has(ownerId)) return; // 会话已销毁，结果留给 wait 取
     deliver(agent, formatBatchPush(batchId, mode, results));
   });
 };
@@ -127,16 +130,18 @@ const attachBatchPush = (agent, batchId, mode, p) => {
 const watchPeerAndPush = (agent, peer, seq, config) => {
   const msgId = `${peer.peerId}-m${seq}`;
   if (watchedPeers.has(msgId)) return;
-  watchedPeers.set(msgId, String(agent?.id ?? ""));
-  // signal 传 undefined：后台 watcher 与派发工具调用解耦
-  void waitForPeerMessage(peer, seq, config, undefined).then((result) => {
+  const ownerId = String(agent?.id ?? "");
+  watchedPeers.set(msgId, ownerId);
+  // 会话销毁时 shouldStop 让等待尽快退出，但绝不杀 peer（持久资产留给下个会话）。
+  void waitForPeerMessage(peer, seq, config, undefined, {
+    shouldStop: () => disposedAgents.has(ownerId),
+  }).then((result) => {
     watchedPeers.delete(msgId);
     if (claimedPeers.has(msgId)) {
       claimedPeers.delete(msgId);
       return;
     }
-    if (result.status === "completed") {
-    }
+    if (result.error === "cancelled" || disposedAgents.has(ownerId)) return;
     deliver(
       agent,
       [
@@ -151,6 +156,7 @@ const watchPeerAndPush = (agent, peer, seq, config) => {
 /** 会话销毁时清理该 agent 名下的推送状态（agent/disposed 调用）。 */
 export function cleanupAgentOps(agentId) {
   const id = String(agentId ?? "");
+  disposedAgents.add(id);
   for (const [k, v] of pendingOps) {
     if (v.agentId === id) pendingOps.delete(k);
   }

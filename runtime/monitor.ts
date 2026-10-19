@@ -111,6 +111,7 @@ export async function waitForPeerMessage(
   seq: number,
   config: SubagentConfig,
   signal?: AbortSignal,
+  opts?: { shouldStop?: () => boolean },
 ): Promise<RunResult> {
   const startedAt = Date.now();
   const msgId = `${peer.peerId}-m${seq}`;
@@ -218,6 +219,13 @@ export async function waitForPeerMessage(
 
   return new Promise<RunResult>((resolve) => {
     const interval = setInterval(() => {
+      // 0. 宿主会话已销毁：停止等待，但不杀 peer（持久资产留给下个会话）
+      if (opts?.shouldStop?.()) {
+        clearInterval(interval);
+        resolve(finish("failed", "watcher cancelled", -1, "cancelled"));
+        return;
+      }
+
       // 1. abort → 杀 pane（显式终止语义）
       if (signal?.aborted) {
         clearInterval(interval);
