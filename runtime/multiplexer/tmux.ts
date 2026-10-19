@@ -16,6 +16,7 @@ function tmuxExec(args: string[]): string {
   return execFileSync("tmux", args, {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
+    timeout: 10_000, // server 卡死时不能拖住宿主事件循环
   }).trim();
 }
 

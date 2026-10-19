@@ -124,7 +124,7 @@ export interface MultiplexerBackend {
    * 是空输入 Enter，无副作用。tmux 的 sendText 本就是 -l + Enter 两段式，
    * 直接复用。
    */
-  promptAgent?(paneId: string, text: string): void;
+  promptAgent?(paneId: string, text: string): void | Promise<void>;
 
   /**
    * 向 pane 发送裸按键（Escape/Enter/Down/C-c 等，用于打断/应答权限门）。

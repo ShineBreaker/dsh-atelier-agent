@@ -265,7 +265,7 @@ export const definition = defineTool({
       }
       if (peer) {
         const busyBefore = peerBusy(peer);
-        const sent = sendToPeer(peer, task, { images: params.images });
+        const sent = await sendToPeer(peer, task, { images: params.images });
         if (!params.wait && sent.isNewTask)
           watchPeerAndPush(hostAgent, peer, sent.seq, config);
         if (params.wait) {
@@ -533,7 +533,7 @@ export const definition = defineTool({
             newTab: `sub:${agent.name}`,
           });
         }
-        const sent = sendToPeer(peer, params.task, { images: params.images });
+        const sent = await sendToPeer(peer, params.task, { images: params.images });
         if (params.wait !== true && sent.isNewTask) {
           watchPeerAndPush(hostAgent, peer, sent.seq, config);
         }

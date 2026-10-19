@@ -144,7 +144,7 @@ export async function executeWithFallback(
       continue;
     }
 
-    const sent = sendToPeer(peer, task, { images, parentRunId });
+    const sent = await sendToPeer(peer, task, { images, parentRunId });
     const result = await waitForPeerMessage(peer, sent.seq, config, signal);
 
     if (result.status === "completed") return result;
@@ -260,7 +260,7 @@ export async function runParallelBatches(
           parentRunId,
         });
         rowAnchorPaneId = peer.paneId;
-        const sent = sendToPeer(peer, t.task, {
+        const sent = await sendToPeer(peer, t.task, {
           parentRunId,
           mode: "parallel",
         });
@@ -363,7 +363,7 @@ export async function runChain(
 
     if (reusable && prevPeer) {
       stepPeer = prevPeer;
-      const sent = sendToPeer(prevPeer, task, {
+      const sent = await sendToPeer(prevPeer, task, {
         parentRunId,
         mode: "chain",
       });
@@ -385,7 +385,7 @@ export async function runChain(
         });
         stepPeer = peer;
         rowAnchorPaneId = peer.paneId;
-        const sent = sendToPeer(peer, task, {
+        const sent = await sendToPeer(peer, task, {
           parentRunId,
           mode: "chain",
         });

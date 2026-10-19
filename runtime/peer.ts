@@ -490,7 +490,7 @@ export interface SendResult {
  * 重置 status.json、注册 run、发送提交文本。
  * peer 忙 → 舵手：只 sendText，不动文件契约（消息由 harness 排队/打断）。
  */
-export function sendToPeer(
+export async function sendToPeer(
   peer: PeerInfo,
   task: string,
   opts: {
@@ -499,7 +499,7 @@ export function sendToPeer(
     /** 批次 mode（chain/parallel 步骤归组）；默认 "single" */
     mode?: "single" | "parallel" | "chain";
   } = {},
-): SendResult {
+): Promise<SendResult> {
   const backend = detectBackend();
   // 新消息 = 复用意图，撤销挂起的空闲自动回收
   cancelIdleClose(peer.peerId);
@@ -507,7 +507,7 @@ export function sendToPeer(
 
   if (busy) {
     // 舵手：直接注入文本，不打断当前 turn（harness 自行排队/消化）。
-    (backend.promptAgent ?? backend.sendText).call(backend, peer.paneId, task);
+    await (backend.promptAgent ?? backend.sendText).call(backend, peer.paneId, task);
     peer.lastStatus = "working";
     writePeerJson(peer);
     return {
@@ -540,7 +540,7 @@ export function sendToPeer(
 
   const msgId = `${peer.peerId}-m${seq}`;
 
-  (backend.promptAgent ?? backend.sendText).call(
+  await (backend.promptAgent ?? backend.sendText).call(
     backend,
     peer.paneId,
     submissionText(peer, seq, task),

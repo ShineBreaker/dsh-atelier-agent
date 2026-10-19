@@ -37,6 +37,7 @@ function herdrExec(args: string[]): string {
   return execFileSync("herdr", args, {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
+    timeout: 10_000, // daemon 卡死时不能拖住宿主事件循环
   }).trim();
 }
 
@@ -173,10 +174,11 @@ export class HerdrBackend implements MultiplexerBackend {
    * `pane run` + 一拍后 `send-keys Enter`——hermes 实测 `pane run` 只写
    * 输入框不回车，且 Enter 与文本同拍到达会被其输入状态机吞掉。
    */
-  promptAgent(paneId: string, text: string): void {
+  async promptAgent(paneId: string, text: string): Promise<void> {
     if (herdrExecMaybe(["agent", "prompt", paneId, text]) !== null) return;
     herdrExec(["pane", "run", paneId, text]);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 400);
+    // 非阻塞等待：Enter 与文本同拍会被 hermes 输入状态机吞掉
+    await new Promise((r) => setTimeout(r, 400));
     herdrExecMaybe(["pane", "send-keys", paneId, "Enter"]);
   }
 
