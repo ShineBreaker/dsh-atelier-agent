@@ -24,7 +24,7 @@
 3. **对话**：会话不因一条任务结束而销毁；可追问、纠偏、解堵。
 4. **回收**：以文件契约（`brief-N.md` / `result-N.md` / `status.json`）
    结构化收回结果，并异步推送给主会话。
-5. **恢复**：空闲回收后仍能无损（或显式有损）恢复会话；崩溃后可认领孤儿。
+5. **恢复**：空闲回收后仍能恢复会话；崩溃后可认领孤儿。
 6. **可见**：人能在 TUI / 桌面端看到有哪些 peer、在做什么、实时输出是什么。
 
 这六件事之外的功能，默认不做；新增前先回答"它服务于哪个职责"。
@@ -40,28 +40,40 @@
 5. **工具名 `peer` 不抢 `subagent`**：与原生工具族互补共存。
 6. **不阻塞宿主事件循环**：所有外部命令都必须有超时。
 
-## 裁剪清单（相对 pi atelier 移植版）
+## 裁剪与替换（相对 pi atelier 移植版）
 
-以下模块属于 pi 全家桶或未实现的设计，已从本插件移除：
-
-| 模块 | 行数 | 理由 |
+| 模块 | 处理 | 理由 |
 |---|---|---|
-| `hooks.js`（plan gate / 视觉移交 / 主会话角色注入） | ~300 | agent 配置与计划评审，不是跨 CLI 协调 |
-| `commands.js` 的角色/模板命令 | ~200 | 模型可直接调用 `peer`，无需 17 个斜杠命令 |
-| `lifecycle/`（checkpoint / resume / workflow） | ~555 | 与 DSH 原生 workflow 重复 |
-| `registry/`（SQLite 索引 + completion gate） | ~950 | 文件契约已能表达状态；索引是第二种真相源 |
-| `core/schedule.ts`（模型时段限制） | ~224 | 与协调无关 |
-| `runtime/workfile.ts` / `session-log.ts` | ~220 | 与 `result-N.md` 重复的落盘 |
-| `registry/return-header.ts` | ~183 | 解析结果只写入无人读取的索引 |
-| `tools/herdr.js` | ~220 | 模型已有 `peer`，不需要第二套 pane 控制面 |
+| `hooks.js`（plan gate / 视觉移交 / 角色注入） | 删除；保留会话锚点与崩溃恢复（~90 行） | agent 配置与计划评审不是跨 CLI 协调 |
+| `commands.js` 的 `/<agent>`、`/<prompt>` | 替换为单一 `/atelier` 管理命令 | 模型可直接调用 `peer`，人只需要状态入口 |
+| `lifecycle/`（checkpoint / resume / workflow） | 删除 | 与 DSH 原生 workflow 重复 |
+| `registry/`（SQLite 索引 + completion gate） | 删除；恢复改为扫描 peer 目录 | 文件契约已能表达状态 |
+| `core/schedule.ts`（模型时段限制） | 删除 | 与协调无关 |
+| `runtime/workfile.ts` / `session-log.ts` | 删除 | 与 `result-N.md` 重复的落盘 |
+| `registry/return-header.ts` | 移到 `runtime/`，解析结果随 RunResult 展示 | 协议仍有价值，索引消费方已消失 |
+| `tools/herdr.js` | 删除 | 模型已有 `peer`，不需要第二套 pane 控制面 |
 
-保留并收敛的核心：`runtime/{peer,monitor,runner,launcher,multiplexer,harness}`、
-`tools/peer.js`、`core/{config,discovery,types,schemas,context}`、`lib/`。
+保留并收敛的核心：`runtime/{peer,monitor,runner,launcher,recovery,rpc}`、
+`runtime/{multiplexer,harness}`、`tools/peer.js`、
+`core/{config,discovery,types,schemas,context}`、`lib/`。
 
-## 需要补强的缺口
+## 落地状态
 
-1. **人在环命令**：单一 `/atelier` 命令（peers / read / focus / send / close）。
-2. **通用恢复**：harness 无原生 session id 时，用历史 `brief/result` 重放上下文。
-3. **真实 E2E**：headless 真派发 + 文件契约断言 + TUI 冷启动，进 CI。
-4. **桌面端**：peer 列表、实时输出、派发结果推送的 client 面板。
-5. **可观测性**：失败原因结构化（harness 缺失 / 启动超时 / blocked / 契约超时）。
+已补强：
+
+1. **人在环命令**：`/atelier`（peers / list / read / focus / send /
+   close / recover）。
+2. **通用恢复**：无原生 session id 的 harness 用历史 brief/result
+   上下文重放；有 session id 时走原生 resume。
+3. **真实验证**：`npm test`（契约/恢复）、`npm run test:live`
+   （headless 真派发 + 文件契约断言）、`npm run test:tui`
+   （TUI 冷启动 + `/atelier list`）；CI 发布前跑 `npm test`。
+4. **桌面端**：Web/Electron 共用的 Peers 面板（列表、实时输出、舵手
+   发送、聚焦、退役、孤儿回收），宿主 RPC `/dsh-atelier`。
+
+仍待：
+
+- **可观测性继续细化**：失败原因已写入 `status.json.error` 与推送文本，
+  但还没有按 harness 聚合的成功率/耗时统计。
+- **Electron 实机验证**：本机没有 Desktop 应用；Web UI 已验证，Electron
+  复用同一套 `dsh.client` + slot + connection RPC 机制。
